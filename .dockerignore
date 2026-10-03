@@ -11,3 +11,7 @@ supabase
 Dockerfile
 .dockerignore
 stack.yml
+.github
+docs
+scripts
+coverage
