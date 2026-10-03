@@ -9,7 +9,7 @@
 // A idempotência vem do upsert onConflict (user_id, origin, external_id).
 // ─────────────────────────────────────────────────────────────
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DbClient, Json, Tables } from "@/lib/supabase/database.types";
 import { getItem, getAccounts, getTransactions } from "./client";
 import type { PluggyAccount, PluggyTransaction } from "./client";
 import { cleanInstitution } from "@/lib/engine/bank-name";
@@ -18,11 +18,17 @@ import { cleanInstitution } from "@/lib/engine/bank-name";
  * Cliente Supabase agnóstico ao schema (o admin usa 'gestor360', não
  * 'public'). Evita o conflito de generic entre os dois.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = SupabaseClient<any, any, any>;
+type AnySupabase = DbClient;
 import { pluggyConnectorMany } from "@/lib/engine/pluggy";
 import { normalize, type NormalizedTransaction } from "@/lib/engine/normalizer";
 import { categorize } from "@/lib/engine/categorizer";
+import {
+  toCategory,
+  toJsonColumn,
+  toPaymentMethodColumn,
+  toRule,
+  toStatusColumn,
+} from "@/lib/data/mappers";
 import {
   resolvePayeeIdForTransactionWithCategory,
   commitPayeeAggregates,
@@ -104,31 +110,6 @@ function accountBalanceFields(acc: PluggyAccount) {
   };
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function toCategory(r: any): Category {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    kind: r.kind,
-    nature: r.nature,
-    color: r.color,
-    isSystem: r.is_system,
-    parentId: r.parent_id ?? null,
-    sortOrder: r.sort_order ?? 0,
-    code: r.code ?? null,
-  };
-}
-function toRule(r: any): CategoryRule {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    pattern: r.pattern,
-    categoryId: r.category_id,
-    source: r.source,
-  };
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
  * Sincroniza um Item da Pluggy para o usuário dado.
@@ -302,8 +283,8 @@ export async function runPluggySync(
     // Campos do payload completo da Pluggy (migration 0006) — ver
     // src/lib/engine/pluggy.ts para a extração e mapPluggyPaymentMethod
     // para o mapeamento de payment_method.
-    raw_payload: unknown | null;
-    payment_method: string | null;
+    raw_payload: Json | null;
+    payment_method: Tables<"transactions">["payment_method"];
     operation_type: string | null;
     counterparty_document: string | null;
     counterparty_name: string | null;
@@ -311,7 +292,7 @@ export async function runPluggySync(
     pluggy_category: string | null;
     pluggy_category_id: string | null;
     // Campos do payload completo da Pluggy (migration 0008).
-    status: string | null;
+    status: Tables<"transactions">["status"];
     has_credit_card: boolean | null;
   }
   const rows: TransactionRow[] = [];
@@ -370,15 +351,15 @@ export async function runPluggySync(
       needs_review: needsReview,
       external_id: n.externalId ?? null,
       payee_id: payeeId,
-      raw_payload: n.rawPayload ?? null,
-      payment_method: n.paymentMethod ?? null,
+      raw_payload: toJsonColumn(n.rawPayload),
+      payment_method: toPaymentMethodColumn(n.paymentMethod),
       operation_type: n.operationType ?? null,
       counterparty_document: n.counterpartyDocument ?? null,
       counterparty_name: n.counterpartyName ?? null,
       merchant_name: n.merchantName ?? null,
       pluggy_category: n.pluggyCategory ?? null,
       pluggy_category_id: n.pluggyCategoryId ?? null,
-      status: n.status ?? null,
+      status: toStatusColumn(n.status),
       has_credit_card: n.hasCreditCard ?? null,
     });
   }

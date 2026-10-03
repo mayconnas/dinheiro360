@@ -2,20 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/auth/session";
+import { assertCategoryOwned } from "@/lib/data/guards";
+import { parseInput, uuid } from "@/lib/validation";
 import {
   resolvePayeeIdForTransaction,
   commitPayeeAggregates,
 } from "@/lib/data/payees-repo";
 import type { PayeeKind } from "@/lib/engine/payee";
 
-async function requireUserId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Não autenticado.");
-  return user.id;
-}
 
 export interface BackfillPayeesResult {
   ok: boolean;
@@ -196,6 +191,7 @@ export interface PayeeTransactionItem {
 export async function getTransactionsByPayee(
   payeeId: string
 ): Promise<PayeeTransactionItem[]> {
+  payeeId = parseInput(uuid, payeeId);
   const userId = await requireUserId();
   const supabase = await createClient();
 
@@ -241,8 +237,13 @@ export async function setPayeeCategory(
   categoryId: string
 ): Promise<SetPayeeCategoryResult> {
   try {
+    payeeId = parseInput(uuid, payeeId);
+    categoryId = parseInput(uuid, categoryId);
     const userId = await requireUserId();
     const supabase = await createClient();
+    const category = await assertCategoryOwned(supabase, userId, categoryId);
+    // categoria de receita só vale para entradas; de despesa, para saídas
+    const txType = category.kind === "receita" ? "entrada" : "saida";
 
     // valida posse do payee (defesa em profundidade além da RLS)
     const { data: payee, error: payeeErr } = await supabase
@@ -266,6 +267,7 @@ export async function setPayeeCategory(
       .update({ category_id: categoryId, needs_review: false })
       .eq("user_id", userId)
       .eq("payee_id", payeeId)
+      .eq("type", txType)
       .select("id");
     if (applyErr) throw new Error(applyErr.message);
 
@@ -313,23 +315,31 @@ export async function applyCategoryToPayeeOfTransaction(
   categoryId: string
 ): Promise<ApplyCategoryToPayeeOfTransactionResult> {
   try {
+    transactionId = parseInput(uuid, transactionId);
+    categoryId = parseInput(uuid, categoryId);
     const userId = await requireUserId();
     const supabase = await createClient();
+    const category = await assertCategoryOwned(supabase, userId, categoryId);
 
     const { data: tx, error: txErr } = await supabase
       .from("transactions")
-      .select("id, payee_id, description")
+      .select("id, payee_id, description, type")
       .eq("id", transactionId)
       .eq("user_id", userId)
       .single();
     if (txErr) throw new Error(txErr.message);
     if (!tx) throw new Error("Transação não encontrada.");
+    const expectedKind = tx.type === "entrada" ? "receita" : "despesa";
+    if (category.kind !== expectedKind) {
+      throw new Error(`"${category.name}" é uma categoria de ${category.kind}, não serve para uma ${tx.type}.`);
+    }
 
     if (tx.payee_id) {
       const { data: payee } = await supabase
         .from("payees")
         .select("name")
         .eq("id", tx.payee_id)
+        .eq("user_id", userId)
         .maybeSingle();
       const result = await setPayeeCategory(tx.payee_id, categoryId);
       return { ...result, payeeName: payee?.name };
@@ -347,6 +357,7 @@ export async function applyCategoryToPayeeOfTransaction(
       .update({ category_id: categoryId, needs_review: false })
       .eq("user_id", userId)
       .eq("description", tx.description)
+      .eq("type", tx.type)
       .select("id");
     if (applyErr) throw new Error(applyErr.message);
 

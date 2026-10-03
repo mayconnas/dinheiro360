@@ -2,21 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { runPluggySync, fetchAllItemTransactions } from "@/lib/pluggy/sync";
+import { runPluggySync } from "@/lib/pluggy/sync";
+import { reprocessPayloadForUser } from "@/lib/pluggy/reprocess";
 import { deleteItem } from "@/lib/pluggy/client";
-import { pluggyConnector } from "@/lib/engine/pluggy";
-import { normalize } from "@/lib/engine/normalizer";
 import { cleanNameOnly } from "@/lib/engine/bank-name";
 
-async function requireUserId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Não autenticado.");
-  return user.id;
-}
 
 /** Um banco individual dentro de uma conexão (conta vinculada ao item). */
 export interface ConnectionBank {
@@ -161,7 +153,8 @@ export async function listConnections(): Promise<ConnectionInfo[]> {
   return items.map((r) => ({
     itemId: r.item_id,
     connectorName: r.connector_name,
-    status: r.status,
+    // null = item recém-criado, ainda antes da primeira sincronização
+    status: r.status ?? "UPDATING",
     consentExpiresAt: r.consent_expires_at,
     lastSyncedAt: r.last_synced_at,
     banks: banksByItem.get(r.item_id) ?? [],
@@ -248,140 +241,14 @@ export interface ReSyncResult {
 export async function reSyncPluggyPayload(): Promise<ReSyncResult> {
   try {
     const userId = await requireUserId();
-    const admin = createAdminClient();
-
-    // Itens ativos do usuário (qualquer status — mesmo OUTDATED/LOGIN_ERROR
-    // ainda tem histórico acessível na API; só pulamos se a busca falhar).
-    const { data: items, error: itemsErr } = await admin
-      .from("pluggy_items")
-      .select("item_id")
-      .eq("user_id", userId);
-    if (itemsErr) throw new Error(itemsErr.message);
-    if (!items || items.length === 0) {
-      return { ok: true, updated: 0, notFound: 0 };
-    }
-
-    // Todos os external_id já gravados para este usuário (origin
-    // open_finance), para sabermos quais linhas existem sem um
-    // SELECT por transação — carregado uma vez, em lotes por causa
-    // do tamanho da URL do PostgREST (mesma cautela do sync.ts).
-    const existingIds = new Set<string>();
-    {
-      const PAGE = 1000;
-      let from = 0;
-      for (;;) {
-        const { data, error } = await admin
-          .from("transactions")
-          .select("id,external_id")
-          .eq("user_id", userId)
-          .eq("origin", "open_finance")
-          .not("external_id", "is", null)
-          .range(from, from + PAGE - 1);
-        if (error) throw new Error(error.message);
-        if (!data || data.length === 0) break;
-        for (const r of data) {
-          if (r.external_id) existingIds.add(r.external_id as string);
-        }
-        if (data.length < PAGE) break;
-        from += PAGE;
-      }
-    }
-
-    let updated = 0;
-    let notFound = 0;
-
-    for (const { item_id: itemId } of items) {
-      let pluggyTxs;
-      try {
-        pluggyTxs = await fetchAllItemTransactions(itemId as string);
-      } catch (e) {
-        // item pode estar inacessível (revogado na origem); segue pros outros.
-        console.error(`[reSyncPluggyPayload] item ${itemId} falhou:`, e);
-        continue;
-      }
-
-      // Mesma extração da ingestão normal (pluggyConnector → normalize),
-      // pra garantir consistência com o que runPluggySync grava.
-      type UpdateRow = {
-        external_id: string;
-        raw_payload: unknown | null;
-        payment_method: string | null;
-        operation_type: string | null;
-        counterparty_document: string | null;
-        counterparty_name: string | null;
-        merchant_name: string | null;
-        pluggy_category: string | null;
-        pluggy_category_id: string | null;
-      };
-      const updates: UpdateRow[] = [];
-      for (const tx of pluggyTxs) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const raw = pluggyConnector(tx as any);
-        const n = normalize(raw);
-        if (!n.externalId) continue;
-        if (!existingIds.has(n.externalId)) {
-          notFound++;
-          continue;
-        }
-        updates.push({
-          external_id: n.externalId,
-          raw_payload: n.rawPayload ?? null,
-          payment_method: n.paymentMethod ?? null,
-          operation_type: n.operationType ?? null,
-          counterparty_document: n.counterpartyDocument ?? null,
-          counterparty_name: n.counterpartyName ?? null,
-          merchant_name: n.merchantName ?? null,
-          pluggy_category: n.pluggyCategory ?? null,
-          pluggy_category_id: n.pluggyCategoryId ?? null,
-        });
-      }
-
-      // UPDATE por lote: o PostgREST não tem "update ... from values()",
-      // então cada linha é um UPDATE .eq(external_id) individual — mas
-      // disparado em lotes de 200 em paralelo (Promise.all) para não
-      // serializar centenas de round-trips um por um.
-      const BATCH = 200;
-      for (let i = 0; i < updates.length; i += BATCH) {
-        const batch = updates.slice(i, i + BATCH);
-        const results = await Promise.all(
-          batch.map((r) =>
-            admin
-              .from("transactions")
-              .update({
-                raw_payload: r.raw_payload,
-                payment_method: r.payment_method,
-                operation_type: r.operation_type,
-                counterparty_document: r.counterparty_document,
-                counterparty_name: r.counterparty_name,
-                merchant_name: r.merchant_name,
-                pluggy_category: r.pluggy_category,
-                pluggy_category_id: r.pluggy_category_id,
-              })
-              .eq("user_id", userId)
-              .eq("origin", "open_finance")
-              .eq("external_id", r.external_id)
-          )
-        );
-        for (const res of results) {
-          if (res.error) {
-            console.error("[reSyncPluggyPayload] update falhou:", res.error.message);
-            continue;
-          }
-          updated++;
-        }
-      }
-    }
-
+    // Mesma rotina do cron (/api/pluggy/reprocess) — uma implementação só.
+    const { updated, notFound } = await reprocessPayloadForUser(createAdminClient(), userId);
     revalidatePath("/conexoes");
     revalidatePath("/");
     revalidatePath("/transacoes");
     return { ok: true, updated, notFound };
   } catch (e) {
-    return {
-      ok: false,
-      updated: 0,
-      notFound: 0,
-      error: e instanceof Error ? e.message : "erro",
-    };
+    console.error("[reSyncPluggyPayload] falhou:", e);
+    return { ok: false, updated: 0, notFound: 0, error: e instanceof Error ? e.message : "erro" };
   }
 }

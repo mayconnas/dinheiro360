@@ -14,9 +14,10 @@
 // ─────────────────────────────────────────────────────────────
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { readCredential } from "@/lib/ai/credential-store";
 import { JEV_DEFAULT_MODEL } from "./config";
 
-export const TYPESAFE_PROVIDER = "typesafe";
+export const TYPESAFE_PROVIDER = "typesafe" as const;
 
 export interface TypeSafeCredential {
   apiKey: string;
@@ -25,23 +26,13 @@ export interface TypeSafeCredential {
 }
 
 export async function getTypeSafeCredential(userId: string): Promise<TypeSafeCredential | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("ai_credentials")
-    .select("api_key,model")
-    .eq("user_id", userId)
-    .eq("provider", TYPESAFE_PROVIDER)
-    .maybeSingle();
-
-  if (error) {
-    // Falha de leitura não derruba a tela — cai no fallback da env.
-    console.error("[ai/jev] getTypeSafeCredential falhou:", error.message);
-  } else if (data?.api_key) {
-    return {
-      apiKey: String(data.api_key),
-      model: (data.model as string | null)?.trim() || envModel(),
-      source: "user",
-    };
+  try {
+    const supabase = await createClient();
+    const cred = await readCredential(supabase, userId, { provider: TYPESAFE_PROVIDER });
+    if (cred) return { apiKey: cred.apiKey, model: cred.model?.trim() || envModel(), source: "user" };
+  } catch (e) {
+    // Falha de leitura/decifragem não derruba a tela — cai no fallback da env.
+    console.error("[ai/jev] getTypeSafeCredential falhou:", e instanceof Error ? e.message : e);
   }
 
   const envKey = process.env.TYPESAFE_API_KEY?.trim();

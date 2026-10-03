@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types";
 
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,7 +18,7 @@ export function createAdminClient() {
       "NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY não configuradas."
     );
   }
-  return createSupabaseClient(url, serviceRole, {
+  return createSupabaseClient<Database, "gestor360">(url, serviceRole, {
     db: { schema: "gestor360" },
     auth: { persistSession: false, autoRefreshToken: false },
   });

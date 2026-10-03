@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runPluggySync } from "@/lib/pluggy/sync";
+import { toJsonColumn } from "@/lib/data/mappers";
 
 const PLUGGY_WEBHOOK_IP = "52.67.145.81";
 
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
       event_id: eventId,
       event: event ?? "unknown",
       item_id: itemId ?? null,
-      payload: body as unknown as Record<string, unknown>,
+      payload: toJsonColumn(body) ?? {},
     });
   }
 

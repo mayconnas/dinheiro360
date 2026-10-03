@@ -18,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { toAccount, toBudget, toCategory, toGoal, toProfile, toTransaction } from "./mappers";
 import type {
   Account,
   Budget,
@@ -71,115 +72,6 @@ export interface GetFullFinancialDataOptions {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-/**
- * Mapeia uma linha de `transactions` (colunas enxutas) para o tipo
- * canônico Transaction. Campos que NÃO buscamos (raw_payload pesado,
- * merchant_name, status, etc.) recebem default null — não são usados
- * nem pela classificação (classifyTransactions) nem pela IA.
- */
-function toAiTransaction(r: any, userId: string): Transaction {
-  return {
-    id: r.id,
-    userId,
-    date: r.date,
-    amount: Number(r.amount),
-    type: r.type,
-    description: r.description ?? "",
-    rawDescription: r.raw_description ?? "",
-    categoryId: r.category_id ?? null,
-    accountId: r.account_id ?? null,
-    payeeId: r.payee_id ?? null,
-    paymentMethod: r.payment_method ?? null,
-    operationType: r.operation_type ?? null,
-    counterpartyName: r.counterparty_name ?? null,
-    counterpartyDocument: r.counterparty_document ?? null,
-    merchantName: null,
-    pluggyCategory: r.pluggy_category ?? null,
-    pluggyCategoryId: null,
-    status: null,
-    hasCreditCard: null,
-    rawPayload: null,
-    origin: r.origin ?? "manual",
-    isDuplicate: r.is_duplicate ?? false,
-    needsReview: r.needs_review ?? false,
-    createdAt: r.created_at ?? "",
-  };
-}
-
-function toCategory(r: any): Category {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    kind: r.kind,
-    nature: r.nature,
-    color: r.color,
-    isSystem: r.is_system,
-    parentId: r.parent_id ?? null,
-    sortOrder: r.sort_order ?? 0,
-    code: r.code ?? null,
-  };
-}
-
-/**
- * Mapeia `accounts` DEFENSIVAMENTE: as colunas de saldo/cartão (migration
- * 0010) podem estar ausentes/NULL em contas manuais ou nunca
- * sincronizadas. `r.<coluna> ?? null` nunca quebra se a coluna não vier.
- */
-function toAccount(r: any): Account {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    kind: r.kind,
-    openingBalance: Number(r.opening_balance ?? 0),
-    currentBalance: r.current_balance != null ? Number(r.current_balance) : null,
-    accountType: r.account_type ?? null,
-    institution: r.institution ?? null,
-    creditLimit: r.credit_limit != null ? Number(r.credit_limit) : null,
-    creditAvailable:
-      r.credit_available != null ? Number(r.credit_available) : null,
-    creditMinimumPayment:
-      r.credit_minimum_payment != null ? Number(r.credit_minimum_payment) : null,
-    creditDueDate: r.credit_due_date ?? null,
-    cardBrand: r.card_brand ?? null,
-    cardLast4: r.card_last4 ?? null,
-    number: r.number ?? null,
-    owner: r.owner ?? null,
-  };
-}
-
-function toBudget(r: any): Budget {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    categoryId: r.category_id,
-    limit: Number(r.monthly_limit),
-  };
-}
-
-function toGoal(r: any): Goal {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    targetAmount: Number(r.target_amount),
-    currentAmount: Number(r.current_amount),
-    deadline: r.deadline,
-  };
-}
-
-function toProfile(r: any): Profile {
-  return {
-    userId: r.user_id,
-    displayName: r.display_name,
-    monthlyIncome: Number(r.monthly_income),
-    employmentType: r.employment_type,
-    dependents: r.dependents,
-    priorityLadder: r.priority_ladder ?? [],
-  };
-}
 
 function toPayee(r: any): AiPayee {
   return {
@@ -278,7 +170,7 @@ export async function getFullFinancialData(
   }
 
   const transactions = (txRes.data ?? [])
-    .map((r) => toAiTransaction(r, uid as string))
+    .map((r) => toTransaction(r, uid as string))
     .filter((t) => !t.isDuplicate);
 
   return {

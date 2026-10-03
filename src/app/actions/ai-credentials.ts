@@ -17,28 +17,17 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/auth/session";
+import { listCredentialSummaries, writeCredential } from "@/lib/ai/credential-store";
+import { aiProvider, apiKey as apiKeySchema, modelName, parseInput } from "@/lib/validation";
+import { z } from "zod";
+
+const SaveInput = z.object({ provider: aiProvider, apiKey: apiKeySchema, model: modelName });
 import { AI_PROVIDERS, type AiProvider } from "@/lib/ai/provider-meta";
 
-async function requireUserId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Não autenticado.");
-  return user.id;
-}
 
 function isAiProvider(value: string): value is AiProvider {
   return (AI_PROVIDERS as readonly string[]).includes(value);
-}
-
-/** "sk-ant-abc123XYZ" -> "sk-...3XYZ". Nunca expõe mais que os 4 últimos chars. */
-function maskKey(apiKey: string): string {
-  const trimmed = apiKey.trim();
-  if (trimmed.length <= 4) return "•".repeat(trimmed.length || 4);
-  const prefix = trimmed.slice(0, 3);
-  const suffix = trimmed.slice(-4);
-  return `${prefix}...${suffix}`;
 }
 
 export interface ActionResult {
@@ -57,18 +46,11 @@ export async function saveAICredential(input: {
   model?: string | null;
 }): Promise<ActionResult> {
   try {
-    if (!isAiProvider(input.provider)) {
-      return { ok: false, error: "Provedor de IA inválido." };
-    }
-    const apiKey = input.apiKey.trim();
-    if (!apiKey) {
-      return { ok: false, error: "Informe a chave de API." };
-    }
+    if (!input?.apiKey?.trim()) return { ok: false, error: "Informe a chave de API." };
+    const { provider, apiKey, model } = parseInput(SaveInput, input);
 
     const userId = await requireUserId();
     const supabase = await createClient();
-
-    const model = input.model?.trim() || null;
 
     // Se o usuário ainda não tem NENHUM provider ativo, este passa a ser o
     // ativo automaticamente — senão a chave ficaria salva porém "inerte" e o
@@ -82,19 +64,12 @@ export async function saveAICredential(input: {
       .eq("is_active", true);
     const activateThis = (activeCount ?? 0) === 0;
 
-    const { error } = await supabase
-      .from("ai_credentials")
-      .upsert(
-        {
-          user_id: userId,
-          provider: input.provider,
-          api_key: apiKey,
-          model,
-          ...(activateThis ? { is_active: true } : {}),
-        },
-        { onConflict: "user_id,provider" }
-      )
-      .eq("user_id", userId);
+    const { error } = await writeCredential(supabase, userId, {
+      provider,
+      apiKey,
+      model,
+      ...(activateThis ? { isActive: true } : {}),
+    });
 
     if (error) throw new Error(error.message);
 
@@ -207,17 +182,8 @@ export async function getAICredentialsStatus(): Promise<{
     const userId = await requireUserId();
     const supabase = await createClient();
 
-    const { data, error } = await supabase
-      .from("ai_credentials")
-      .select("provider,api_key,model,is_active")
-      .eq("user_id", userId);
-    if (error) throw new Error(error.message);
-
     const rows = new Map(
-      (data ?? []).map((row) => [
-        row.provider as AiProvider,
-        row as { provider: string; api_key: string; model: string | null; is_active: boolean },
-      ])
+      (await listCredentialSummaries(supabase, userId)).map((row) => [row.provider, row])
     );
 
     const status: AICredentialStatus[] = AI_PROVIDERS.map((provider) => {
@@ -228,9 +194,9 @@ export async function getAICredentialsStatus(): Promise<{
       return {
         provider,
         configured: true,
-        active: row.is_active,
+        active: row.isActive,
         model: row.model,
-        maskedKey: maskKey(row.api_key),
+        maskedKey: row.maskedKey,
       };
     });
 

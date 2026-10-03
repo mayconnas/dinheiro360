@@ -8,7 +8,7 @@
 // arquivo é só a ponte com o banco.
 // ─────────────────────────────────────────────────────────────
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DbClient } from "@/lib/supabase/database.types";
 import {
   extractPayeeName,
   normalizePayeeName,
@@ -17,8 +17,7 @@ import {
 } from "@/lib/engine/payee";
 import type { TransactionType } from "@/lib/types";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = SupabaseClient<any, any, any>;
+type AnySupabase = DbClient;
 
 export interface UpsertPayeeInput {
   name: string;

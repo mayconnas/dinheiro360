@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/auth/session";
+import { assertCategoriesOwned, assertCategoryOwned } from "@/lib/data/guards";
+import { isoDate, parseInput, transactionType, trimmedText, uuid, uuidList } from "@/lib/validation";
+import { z } from "zod";
 import {
   getCategories,
   getRules,
@@ -20,14 +24,6 @@ import {
 } from "@/lib/data/payees-repo";
 import type { TransactionType } from "@/lib/types";
 
-async function requireUserId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Não autenticado.");
-  return user.id;
-}
 
 export interface AddTransactionInput {
   date: string;
@@ -38,13 +34,38 @@ export interface AddTransactionInput {
   categoryId?: string | null;
 }
 
+// ─── Schemas de entrada (Server Actions são endpoints públicos) ───
+const MAX_BULK = 5000;
+const AddTransactionSchema = z.object({
+  date: isoDate,
+  amount: z.number().finite().positive("O valor precisa ser maior que zero.").max(999_999_999_999.99),
+  type: transactionType,
+  description: trimmedText(200, "Descrição"),
+  accountId: uuid.nullable().optional(),
+  categoryId: uuid.nullable().optional(),
+});
+const IdList = uuidList(MAX_BULK);
+const Assignments = z
+  .array(z.object({ id: uuid, categoryId: uuid }))
+  .max(MAX_BULK, `Envie no máximo ${MAX_BULK} itens por vez.`);
+/** ~5 MB de texto: bem acima de um extrato anual, abaixo do limite de corpo da action. */
+const CsvText = z.string().max(5_000_000, "Arquivo grande demais (máx. 5 MB).");
+
 /**
  * Adiciona uma transação manual. Roda a esteira completa da camada 1→2:
  * conector → normalizador → (categorizador se não veio categoria) → dedup.
  */
 export async function addTransaction(input: AddTransactionInput) {
+  input = parseInput(AddTransactionSchema, input);
   const userId = await requireUserId();
   const supabase = await createClient();
+  if (input.categoryId) {
+    const category = await assertCategoryOwned(supabase, userId, input.categoryId);
+    const expected = input.type === "entrada" ? "receita" : "despesa";
+    if (category.kind !== expected) {
+      throw new Error(`"${category.name}" é uma categoria de ${category.kind}, não serve para uma ${input.type}.`);
+    }
+  }
 
   const raw = manualConnector({
     date: input.date,
@@ -139,20 +160,26 @@ export async function updateTransactionCategory(
   transactionId: string,
   categoryId: string
 ) {
+  transactionId = parseInput(uuid, transactionId);
+  categoryId = parseInput(uuid, categoryId);
   const userId = await requireUserId();
   const supabase = await createClient();
+  await assertCategoryOwned(supabase, userId, categoryId);
 
   // busca a transação para aprender a regra (R5)
   const { data: tx } = await supabase
     .from("transactions")
     .select("description")
     .eq("id", transactionId)
+    .eq("user_id", userId)
     .single();
+  if (!tx) throw new Error("Lançamento não encontrado.");
 
   const { error } = await supabase
     .from("transactions")
     .update({ category_id: categoryId, needs_review: false })
-    .eq("id", transactionId);
+    .eq("id", transactionId)
+    .eq("user_id", userId);
   if (error) throw new Error(error.message);
 
   // aprendizado: correção vira regra automática 'learned'
@@ -165,12 +192,14 @@ export async function updateTransactionCategory(
 }
 
 export async function deleteTransaction(transactionId: string) {
-  await requireUserId();
+  transactionId = parseInput(uuid, transactionId);
+  const userId = await requireUserId();
   const supabase = await createClient();
   const { error } = await supabase
     .from("transactions")
     .delete()
-    .eq("id", transactionId);
+    .eq("id", transactionId)
+    .eq("user_id", userId);
   if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/transacoes");
@@ -184,6 +213,7 @@ export interface ImportResult {
 
 /** Importa um CSV: conector → normaliza → dedup interno e vs. existentes → categoriza → grava. */
 export async function importCSV(csvText: string): Promise<ImportResult> {
+  csvText = parseInput(CsvText, csvText);
   const userId = await requireUserId();
   const supabase = await createClient();
 
@@ -332,8 +362,11 @@ export async function bulkUpdateCategory(
 ): Promise<BulkActionResult> {
   if (ids.length === 0) return { ok: true, count: 0 };
   try {
+    ids = parseInput(IdList, ids);
+    categoryId = parseInput(uuid, categoryId);
     const userId = await requireUserId();
     const supabase = await createClient();
+    await assertCategoryOwned(supabase, userId, categoryId);
 
     const { data: txs } = await supabase
       .from("transactions")
@@ -368,6 +401,7 @@ export async function bulkUpdateCategory(
 export async function bulkDeleteTransactions(ids: string[]): Promise<BulkActionResult> {
   if (ids.length === 0) return { ok: true, count: 0 };
   try {
+    ids = parseInput(IdList, ids);
     const userId = await requireUserId();
     const supabase = await createClient();
     const { error } = await supabase
@@ -400,8 +434,10 @@ export async function bulkMarkReviewed(
 ): Promise<BulkActionResult> {
   if (assignments.length === 0) return { ok: true, count: 0 };
   try {
+    assignments = parseInput(Assignments, assignments);
     const userId = await requireUserId();
     const supabase = await createClient();
+    await assertCategoriesOwned(supabase, userId, assignments.map((a) => a.categoryId));
 
     const byCategory = new Map<string, string[]>();
     for (const a of assignments) {
@@ -453,8 +489,11 @@ export async function createRuleFromSelection(
 ): Promise<BulkActionResult> {
   if (ids.length === 0) return { ok: true, count: 0 };
   try {
+    ids = parseInput(IdList, ids);
+    categoryId = parseInput(uuid, categoryId);
     const userId = await requireUserId();
     const supabase = await createClient();
+    await assertCategoryOwned(supabase, userId, categoryId);
 
     const { data: txs, error: fetchError } = await supabase
       .from("transactions")

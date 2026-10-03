@@ -10,7 +10,8 @@
 // por CRON_SECRET, e disparo administrativo/backfill).
 // ─────────────────────────────────────────────────────────────
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DbClient } from "@/lib/supabase/database.types";
+import { toJsonColumn, toPaymentMethodColumn, toStatusColumn } from "@/lib/data/mappers";
 import { fetchAllItemTransactions } from "@/lib/pluggy/sync";
 import { pluggyConnector } from "@/lib/engine/pluggy";
 import { normalize } from "@/lib/engine/normalizer";
@@ -25,8 +26,7 @@ export interface ReprocessResult {
  * @param admin cliente admin (service_role) — RLS já resolvida pelo userId.
  */
 export async function reprocessPayloadForUser(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  admin: SupabaseClient<any, any, any>,
+  admin: DbClient,
   userId: string
 ): Promise<ReprocessResult> {
   const { data: items, error: itemsErr } = await admin
@@ -83,15 +83,15 @@ export async function reprocessPayloadForUser(
       }
       updates.push({
         external_id: n.externalId,
-        raw_payload: n.rawPayload ?? null,
-        payment_method: n.paymentMethod ?? null,
+        raw_payload: toJsonColumn(n.rawPayload),
+        payment_method: toPaymentMethodColumn(n.paymentMethod),
         operation_type: n.operationType ?? null,
         counterparty_document: n.counterpartyDocument ?? null,
         counterparty_name: n.counterpartyName ?? null,
         merchant_name: n.merchantName ?? null,
         pluggy_category: n.pluggyCategory ?? null,
         pluggy_category_id: n.pluggyCategoryId ?? null,
-        status: n.status ?? null,
+        status: toStatusColumn(n.status),
         has_credit_card: n.hasCreditCard ?? null,
       });
     }

@@ -19,6 +19,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/auth/session";
 import { getAccounts, getCategories } from "@/lib/data/repository";
 import { upsertLearnedRule } from "@/lib/data/learned-rules";
 import { isNoiseOnlyDescription } from "@/lib/engine/normalizer";
@@ -47,25 +48,11 @@ import {
   type JevStatus,
 } from "@/lib/ai/jev/config";
 import type { Account, CategoryKind, TransactionType } from "@/lib/types";
+import { listCredentialSummaries, writeCredential } from "@/lib/ai/credential-store";
+import { apiKey as apiKeySchema, modelName, parseInput, uuid, ValidationError } from "@/lib/validation";
 
-async function requireUserId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Não autenticado.");
-  return user.id;
-}
 
-/** "ts_abc123XYZ" -> "ts_...3XYZ" — mesma regra de ai-credentials.ts. */
-function maskKey(apiKey: string): string {
-  const trimmed = apiKey.trim();
-  if (trimmed.length <= 4) return "•".repeat(trimmed.length || 4);
-  return `${trimmed.slice(0, 3)}...${trimmed.slice(-4)}`;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MODEL_RE = /^[A-Za-z0-9._:-]{1,64}$/;
+const isUuid = (v: unknown): v is string => uuid.safeParse(v).success;
 /** PostgREST manda filtros .in() na URL — lotes pequenos evitam URLs gigantes. */
 const IN_CHUNK = 150;
 
@@ -102,22 +89,17 @@ export async function getJevStatus(): Promise<{ ok: boolean; data: JevStatus; er
   try {
     const userId = await requireUserId();
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("ai_credentials")
-      .select("api_key,model")
-      .eq("user_id", userId)
-      .eq("provider", TYPESAFE_PROVIDER)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-
-    if (data?.api_key) {
+    const saved = (await listCredentialSummaries(supabase, userId)).find(
+      (c) => c.provider === TYPESAFE_PROVIDER
+    );
+    if (saved) {
       return {
         ok: true,
         data: {
-          configured: true,
+          configured: saved.readable,
           source: "user",
-          maskedKey: maskKey(String(data.api_key)),
-          model: (data.model as string | null)?.trim() || null,
+          maskedKey: saved.maskedKey,
+          model: saved.model?.trim() || null,
           defaultModel,
         },
       };
@@ -149,14 +131,14 @@ export async function saveJevCredential(input: {
   apiKey: string;
   model?: string | null;
 }): Promise<{ ok: boolean; error?: string; warning?: string }> {
-  const apiKey = input.apiKey?.trim() ?? "";
-  const model = input.model?.trim() || null;
-  if (!apiKey) return { ok: false, error: "Informe a chave de API da TypeSafe." };
-  if (apiKey.length < 8 || /\s/.test(apiKey)) {
-    return { ok: false, error: "Essa chave não parece válida. Copie-a de novo em console.typesafe.ai/keys." };
-  }
-  if (model && !MODEL_RE.test(model)) {
-    return { ok: false, error: "Nome de modelo inválido. Use, por exemplo, jev-latest ou jev-1.13.0." };
+  if (!input?.apiKey?.trim()) return { ok: false, error: "Informe a chave de API da TypeSafe." };
+  let apiKey: string;
+  let model: string | null;
+  try {
+    apiKey = parseInput(apiKeySchema, input.apiKey);
+    model = parseInput(modelName, input.model);
+  } catch (e) {
+    return { ok: false, error: e instanceof ValidationError ? e.message : "Dados inválidos." };
   }
 
   try {
@@ -171,16 +153,12 @@ export async function saveJevCredential(input: {
     }
 
     const supabase = await createClient();
-    const { error } = await supabase.from("ai_credentials").upsert(
-      {
-        user_id: userId,
-        provider: TYPESAFE_PROVIDER,
-        api_key: apiKey,
-        model,
-        is_active: false,
-      },
-      { onConflict: "user_id,provider" }
-    );
+    const { error } = await writeCredential(supabase, userId, {
+      provider: TYPESAFE_PROVIDER,
+      apiKey,
+      model,
+      isActive: false,
+    });
     if (error) {
       if (error.code === "23514") return { ok: false, error: MIGRATION_HINT };
       throw new Error(error.message);
@@ -196,10 +174,9 @@ export async function saveJevCredential(input: {
 
 /** Troca só o modelo da chave já salva (a chave nunca volta ao client, então não dá pra reenviá-la). null = volta ao padrão. */
 export async function updateJevModel(model: string | null): Promise<{ ok: boolean; error?: string }> {
-  const value = model?.trim() || null;
-  if (value && !MODEL_RE.test(value)) {
-    return { ok: false, error: "Nome de modelo inválido. Use, por exemplo, jev-latest ou jev-1.13.0." };
-  }
+  const parsed = modelName.safeParse(model);
+  if (!parsed.success) return { ok: false, error: "Nome de modelo inválido. Use, por exemplo, jev-latest ou jev-1.13.0." };
+  const value = parsed.data;
   try {
     const userId = await requireUserId();
     const supabase = await createClient();
@@ -327,7 +304,7 @@ async function runPool<T>(
 export async function categorizeWithJev(ids: string[]): Promise<JevCategorizeResult> {
   const base: JevCategorizeResult = { ok: false, decisions: [], skipped: [], requests: 0, inputTokens: 0 };
   const uniqueIds = [...new Set(Array.isArray(ids) ? ids : [])].filter(
-    (id): id is string => typeof id === "string" && UUID_RE.test(id)
+    isUuid
   );
   if (uniqueIds.length === 0) return { ...base, ok: true };
   if (uniqueIds.length > JEV_MAX_IDS_PER_CALL) {
@@ -397,7 +374,7 @@ export async function categorizeWithJev(ids: string[]): Promise<JevCategorizeRes
       despesa: categories.filter((c) => c.kind === "despesa"),
     };
     const history = (historyRes.data ?? [])
-      .filter((r) => !found.has(r.id) && !reviewIds.has(r.category_id))
+      .filter((r) => r.category_id !== null && !found.has(r.id) && !reviewIds.has(r.category_id))
       .filter((r) => {
         const cats = r.type === "entrada" ? categoriesOfKind.receita : categoriesOfKind.despesa;
         const dictId = dictionaryCategoryId(String(r.description ?? ""), String(r.raw_description ?? ""), cats);
@@ -537,7 +514,7 @@ export async function applyJevDecisions(
   options: { learnRules: boolean } = { learnRules: true }
 ): Promise<{ ok: boolean; error?: string; count?: number; skipped?: number; learned?: number }> {
   const clean = (Array.isArray(assignments) ? assignments : []).filter(
-    (a) => a && UUID_RE.test(String(a.id)) && UUID_RE.test(String(a.categoryId))
+    (a) => a && isUuid(a.id) && isUuid(a.categoryId)
   );
   // último vence em caso de id repetido
   const byTx = new Map(clean.map((a) => [a.id, { categoryId: a.categoryId, learn: a.learn === true }]));

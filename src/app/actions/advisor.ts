@@ -4,6 +4,17 @@ import { getWorkspace } from "@/lib/data/repository";
 import { buildContextPackage } from "@/lib/engine/context-package";
 import { diagnose, consult } from "@/lib/ai/brain";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/auth/session";
+import { parseInput } from "@/lib/validation";
+import { z } from "zod";
+
+// Teto de entrada do chat: cada caractere vira token pago no provedor de IA.
+const AskInput = z.object({
+  question: z.string().trim().min(1, "Digite uma pergunta.").max(2000, "Pergunta longa demais (máx. 2.000 caracteres)."),
+  history: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(8000) }))
+    .max(20, "Conversa longa demais — comece uma nova."),
+});
 import type { ContextPackage } from "@/lib/engine/context-package";
 import { getFullFinancialData } from "@/lib/data/ai-queries";
 import { buildFullContext } from "@/lib/ai/full-context";
@@ -19,14 +30,6 @@ function nowRefs(): { today: string; month: string } {
 }
 
 /** Usuário logado — usado para resolver a credencial de IA ativa (brain.ts). */
-async function requireUserId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Não autenticado.");
-  return user.id;
-}
 
 /** Monta o Pacote de Contexto do usuário logado para o mês corrente. */
 async function assemblePackage(refs: { today: string; month: string }): Promise<ContextPackage> {
@@ -121,9 +124,7 @@ export async function askAdvisor(
   history: { role: "user" | "assistant"; content: string }[] = []
 ): Promise<AdvisorResponse> {
   try {
-    if (!question.trim()) {
-      return { ok: false, text: "", error: "Digite uma pergunta." };
-    }
+    ({ question, history } = parseInput(AskInput, { question, history }));
     const userId = await requireUserId();
     const refs = nowRefs();
     const pkg = await assemblePackage(refs);

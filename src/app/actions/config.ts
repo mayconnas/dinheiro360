@@ -2,6 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/auth/session";
+import type { DbClient, TablesUpdate } from "@/lib/supabase/database.types";
+import {
+  accountKind,
+  categoryKind,
+  categoryNature,
+  employmentType,
+  hexColor,
+  isoDate,
+  money,
+  parseInput,
+  trimmedText,
+  uuid,
+} from "@/lib/validation";
+import { z } from "zod";
+import { toCategory } from "@/lib/data/mappers";
 import type { Category, CategoryNature, EmploymentType } from "@/lib/types";
 import {
   buildAccountTree,
@@ -9,13 +25,65 @@ import {
   type AccountTreeNode,
 } from "@/lib/engine/account-tree";
 
-async function requireUserId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Não autenticado.");
-  return user.id;
+
+// ─── Schemas de entrada (Server Actions são endpoints públicos) ───
+const ProfileInput = z.object({
+  displayName: z.string().trim().max(80, "Nome muito longo.").optional(),
+  monthlyIncome: money.optional(),
+  employmentType: employmentType.optional(),
+  dependents: z.number().int().min(0).max(30).optional(),
+});
+const GoalInput = z.object({
+  name: trimmedText(80, "Nome da meta"),
+  targetAmount: money,
+  currentAmount: money.optional(),
+  deadline: isoDate.nullable().optional(),
+});
+const GoalPatch = GoalInput.pick({ targetAmount: true, currentAmount: true, deadline: true }).partial();
+const AccountInput = z.object({
+  name: trimmedText(80, "Nome da conta"),
+  kind: accountKind,
+  openingBalance: z.number().finite().optional(),
+});
+const CategoryInput = z.object({
+  name: trimmedText(60, "Nome da categoria"),
+  kind: categoryKind,
+  nature: categoryNature,
+  color: hexColor.optional(),
+  parentId: uuid.nullable().optional(),
+});
+const CategoryPatch = z.object({
+  name: trimmedText(60, "Nome da categoria").optional(),
+  color: hexColor.optional(),
+  nature: categoryNature.optional(),
+  parentId: uuid.nullable().optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+const RulePattern = z.string().trim().min(3, "O padrão precisa de ao menos 3 caracteres.").max(120);
+
+/**
+ * category_id de TODOS os lançamentos categorizados do usuário, paginado
+ * (o PostgREST corta acima de max-rows sem erro — sem o loop, a contagem
+ * de uso por categoria ficaria errada em históricos grandes).
+ */
+async function fetchCategorizedTxIds(
+  supabase: DbClient,
+  userId: string
+): Promise<{ data: { category_id: string | null }[]; error: { message: string } | null }> {
+  const PAGE = 1000;
+  const out: { category_id: string | null }[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("category_id")
+      .eq("user_id", userId)
+      .not("category_id", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { data: out, error };
+    out.push(...(data ?? []));
+    if (!data || data.length < PAGE) return { data: out, error: null };
+  }
 }
 
 // ─── Perfil ───
@@ -25,9 +93,10 @@ export async function updateProfile(input: {
   employmentType?: EmploymentType;
   dependents?: number;
 }) {
+  input = parseInput(ProfileInput, input);
   const userId = await requireUserId();
   const supabase = await createClient();
-  const patch: Record<string, unknown> = {};
+  const patch: TablesUpdate<"profiles"> = {};
   if (input.displayName !== undefined) patch.display_name = input.displayName;
   if (input.monthlyIncome !== undefined)
     patch.monthly_income = input.monthlyIncome;
@@ -46,6 +115,8 @@ export async function updateProfile(input: {
 
 // ─── Orçamento ───
 export async function setBudget(categoryId: string, limit: number) {
+  categoryId = parseInput(uuid, categoryId);
+  limit = parseInput(money, limit);
   const userId = await requireUserId();
   const supabase = await createClient();
   const { error } = await supabase.from("budgets").upsert(
@@ -58,6 +129,7 @@ export async function setBudget(categoryId: string, limit: number) {
 }
 
 export async function removeBudget(categoryId: string) {
+  categoryId = parseInput(uuid, categoryId);
   const userId = await requireUserId();
   const supabase = await createClient();
   const { error } = await supabase
@@ -77,6 +149,7 @@ export async function addGoal(input: {
   currentAmount?: number;
   deadline?: string | null;
 }) {
+  input = parseInput(GoalInput, input);
   const userId = await requireUserId();
   const supabase = await createClient();
   const { error } = await supabase.from("goals").insert({
@@ -95,34 +168,46 @@ export async function updateGoal(
   goalId: string,
   input: { currentAmount?: number; targetAmount?: number; deadline?: string | null }
 ) {
-  await requireUserId();
+  goalId = parseInput(uuid, goalId);
+  input = parseInput(GoalPatch, input);
+  const userId = await requireUserId();
   const supabase = await createClient();
-  const patch: Record<string, unknown> = {};
+  const patch: TablesUpdate<"goals"> = {};
   if (input.currentAmount !== undefined)
     patch.current_amount = input.currentAmount;
   if (input.targetAmount !== undefined) patch.target_amount = input.targetAmount;
   if (input.deadline !== undefined) patch.deadline = input.deadline;
-  const { error } = await supabase.from("goals").update(patch).eq("id", goalId);
+  const { error } = await supabase
+    .from("goals")
+    .update(patch)
+    .eq("id", goalId)
+    .eq("user_id", userId);
   if (error) throw new Error(error.message);
   revalidatePath("/metas");
   revalidatePath("/");
 }
 
 export async function deleteGoal(goalId: string) {
-  await requireUserId();
+  goalId = parseInput(uuid, goalId);
+  const userId = await requireUserId();
   const supabase = await createClient();
-  const { error } = await supabase.from("goals").delete().eq("id", goalId);
+  const { error } = await supabase
+    .from("goals")
+    .delete()
+    .eq("id", goalId)
+    .eq("user_id", userId);
   if (error) throw new Error(error.message);
   revalidatePath("/metas");
   revalidatePath("/");
 }
 
 // ─── Contas ───
-export async function addAccount(input: {
+export async function addAccount(rawInput: {
   name: string;
   kind: string;
   openingBalance?: number;
 }) {
+  const input = parseInput(AccountInput, rawInput);
   const userId = await requireUserId();
   const supabase = await createClient();
   const { error } = await supabase.from("accounts").insert({
@@ -153,6 +238,7 @@ export async function addCategory(input: {
   color?: string;
   parentId?: string | null;
 }) {
+  input = parseInput(CategoryInput, input);
   const userId = await requireUserId();
   const supabase = await createClient();
 
@@ -253,11 +339,7 @@ export async function listCategoriesWithUsage(): Promise<CategoryWithUsage[]> {
   const [{ data: cats, error: catErr }, { data: txs, error: txErr }] =
     await Promise.all([
       supabase.from("categories").select("*").eq("user_id", userId).order("name"),
-      supabase
-        .from("transactions")
-        .select("category_id")
-        .eq("user_id", userId)
-        .not("category_id", "is", null),
+      fetchCategorizedTxIds(supabase, userId),
     ]);
   if (catErr) throw new Error(catErr.message);
   if (txErr) throw new Error(txErr.message);
@@ -344,6 +426,8 @@ export async function updateCategory(
   }
 ): Promise<CategoryActionResult> {
   try {
+    id = parseInput(uuid, id);
+    input = parseInput(CategoryPatch, input);
     const userId = await requireUserId();
     const supabase = await createClient();
 
@@ -356,7 +440,7 @@ export async function updateCategory(
     if (curErr) throw new Error(curErr.message);
     if (!current) throw new Error("Categoria não encontrada.");
 
-    const patch: Record<string, unknown> = {};
+    const patch: TablesUpdate<"categories"> = {};
     if (input.name !== undefined) {
       const trimmed = input.name.trim();
       if (!trimmed) throw new Error("Nome da categoria não pode ficar vazio.");
@@ -481,6 +565,7 @@ export interface DeleteCategoryResult {
  */
 export async function deleteCategory(id: string): Promise<DeleteCategoryResult> {
   try {
+    id = parseInput(uuid, id);
     const userId = await requireUserId();
     const supabase = await createClient();
 
@@ -598,11 +683,7 @@ export async function listAccountTree(): Promise<AccountTreeUsageNode[]> {
   const [{ data: cats, error: catErr }, { data: txs, error: txErr }] =
     await Promise.all([
       supabase.from("categories").select("*").eq("user_id", userId).order("name"),
-      supabase
-        .from("transactions")
-        .select("category_id")
-        .eq("user_id", userId)
-        .not("category_id", "is", null),
+      fetchCategorizedTxIds(supabase, userId),
     ]);
   if (catErr) throw new Error(catErr.message);
   if (txErr) throw new Error(txErr.message);
@@ -645,11 +726,13 @@ export async function listAccountTree(): Promise<AccountTreeUsageNode[]> {
 
 // ─── Regras de categorização (manual) ───
 export async function addRule(pattern: string, categoryId: string) {
+  pattern = parseInput(RulePattern, pattern);
+  categoryId = parseInput(uuid, categoryId);
   const userId = await requireUserId();
   const supabase = await createClient();
   const { error } = await supabase.from("category_rules").insert({
     user_id: userId,
-    pattern: pattern.trim(),
+    pattern,
     category_id: categoryId,
     source: "manual",
   });

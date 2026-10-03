@@ -6,6 +6,16 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import type { Tables } from "@/lib/supabase/database.types";
+import {
+  toAccount,
+  toBudget,
+  toCategory,
+  toGoal,
+  toProfile,
+  toRule,
+  toTransaction,
+} from "./mappers";
 import type {
   Account,
   Budget,
@@ -17,116 +27,19 @@ import type {
 } from "@/lib/types";
 
 // ─── Mapeadores (row → domínio) ───
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function toTransaction(r: any): Transaction {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    date: r.date,
-    amount: Number(r.amount),
-    type: r.type,
-    description: r.description,
-    rawDescription: r.raw_description ?? "",
-    categoryId: r.category_id,
-    accountId: r.account_id,
-    payeeId: r.payee_id ?? null,
-    paymentMethod: r.payment_method ?? null,
-    operationType: r.operation_type ?? null,
-    counterpartyName: r.counterparty_name ?? null,
-    counterpartyDocument: r.counterparty_document ?? null,
-    merchantName: r.merchant_name ?? null,
-    pluggyCategory: r.pluggy_category ?? null,
-    pluggyCategoryId: r.pluggy_category_id ?? null,
-    status: r.status ?? null,
-    hasCreditCard: r.has_credit_card ?? null,
-    rawPayload: r.raw_payload ?? null,
-    origin: r.origin,
-    isDuplicate: r.is_duplicate,
-    needsReview: r.needs_review,
-    createdAt: r.created_at,
-  };
-}
-
-function toCategory(r: any): Category {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    kind: r.kind,
-    nature: r.nature,
-    color: r.color,
-    isSystem: r.is_system,
-    parentId: r.parent_id ?? null,
-    sortOrder: r.sort_order ?? 0,
-    code: r.code ?? null,
-  };
-}
-
-function toAccount(r: any): Account {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    kind: r.kind,
-    openingBalance: Number(r.opening_balance),
-    currentBalance: r.current_balance != null ? Number(r.current_balance) : null,
-    accountType: r.account_type ?? null,
-    institution: r.institution ?? null,
-    creditLimit: r.credit_limit != null ? Number(r.credit_limit) : null,
-    creditAvailable: r.credit_available != null ? Number(r.credit_available) : null,
-    creditMinimumPayment:
-      r.credit_minimum_payment != null ? Number(r.credit_minimum_payment) : null,
-    creditDueDate: r.credit_due_date ?? null,
-    cardBrand: r.card_brand ?? null,
-    cardLast4: r.card_last4 ?? null,
-    number: r.number ?? null,
-    owner: r.owner ?? null,
-  };
-}
-
-function toBudget(r: any): Budget {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    categoryId: r.category_id,
-    limit: Number(r.monthly_limit),
-  };
-}
-
-function toGoal(r: any): Goal {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    targetAmount: Number(r.target_amount),
-    currentAmount: Number(r.current_amount),
-    deadline: r.deadline,
-  };
-}
-
-function toRule(r: any): CategoryRule {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    pattern: r.pattern,
-    categoryId: r.category_id,
-    source: r.source,
-  };
-}
-
-function toProfile(r: any): Profile {
-  return {
-    userId: r.user_id,
-    displayName: r.display_name,
-    monthlyIncome: Number(r.monthly_income),
-    employmentType: r.employment_type,
-    dependents: r.dependents,
-    priorityLadder: r.priority_ladder ?? [],
-  };
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ─── Leitura ───
+
+/**
+ * Colunas que as telas usam — tudo menos `raw_payload`, o JSON bruto da
+ * Pluggy (alguns KB por linha, nenhuma tela o lê). Em 2.000+ lançamentos
+ * isso é a maior parte do payload que ia do banco para o servidor e do
+ * servidor para o navegador a cada revalidação da tela de Transações.
+ * Quem precisa do payload (Jev, reprocessamento) seleciona por conta própria.
+ */
+const TRANSACTION_LIST_COLUMNS =
+  "id,user_id,date,amount,type,description,raw_description,category_id,account_id,payee_id,payment_method,operation_type,counterparty_name,counterparty_document,merchant_name,pluggy_category,pluggy_category_id,status,has_credit_card,origin,is_duplicate,needs_review,external_id,created_at";
+const TX_PAGE_SIZE = 1000;
 /**
  * Lê transações. `sinceDate` (ISO AAAA-MM-DD), quando presente, limita o
  * resultado a `date >= sinceDate` — evita baixar o histórico inteiro em
@@ -134,17 +47,29 @@ function toProfile(r: any): Profile {
  * ATENÇÃO: para o patrimônio líquido (netBalance), que soma TODAS as
  * transações, use getBalanceTotals() em vez de filtrar por data aqui.
  */
-export async function getTransactions(sinceDate?: string): Promise<Transaction[]> {
+export const getTransactions = cache(async (sinceDate?: string): Promise<Transaction[]> => {
   const supabase = await createClient();
-  let query = supabase
-    .from("transactions")
-    .select("*")
-    .order("date", { ascending: false });
-  if (sinceDate) query = query.gte("date", sinceDate);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []).map(toTransaction);
-}
+  const rows: Tables<"transactions">[] = [];
+  // Paginado: o PostgREST corta respostas acima de `max-rows` (1000 por
+  // padrão) SEM erro — sem o loop, o histórico some em silêncio quando
+  // passa desse tamanho. Ordem estável (date, id) para as páginas não
+  // repetirem nem pularem linhas.
+  for (let from = 0; ; from += TX_PAGE_SIZE) {
+    let query = supabase
+      .from("transactions")
+      .select(TRANSACTION_LIST_COLUMNS)
+      .order("date", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + TX_PAGE_SIZE - 1);
+    if (sinceDate) query = query.gte("date", sinceDate);
+    const { data, error } = await query;
+    if (error) throw error;
+    // as colunas omitidas (raw_payload) viram null no mapper
+    rows.push(...((data ?? []) as Tables<"transactions">[]));
+    if (!data || data.length < TX_PAGE_SIZE) break;
+  }
+  return rows.map((r) => toTransaction(r));
+});
 
 /**
  * Soma agregada de TODO o histórico (entradas − saídas), ignorando
@@ -154,16 +79,24 @@ export async function getTransactions(sinceDate?: string): Promise<Transaction[]
  */
 export async function getBalanceTotals(): Promise<{ income: number; expense: number }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("amount, type, is_duplicate");
-  if (error) throw error;
   let income = 0;
   let expense = 0;
-  for (const r of data ?? []) {
-    if (r.is_duplicate) continue;
-    if (r.type === "entrada") income += Number(r.amount);
-    else if (r.type === "saida") expense += Number(r.amount);
+  // Paginado pelo mesmo motivo de getTransactions: sem o loop, um
+  // histórico acima de max-rows somaria só a primeira página e o
+  // patrimônio líquido sairia errado sem nenhum erro visível.
+  for (let from = 0; ; from += TX_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("amount, type, is_duplicate")
+      .order("id", { ascending: true })
+      .range(from, from + TX_PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      if (r.is_duplicate) continue;
+      if (r.type === "entrada") income += Number(r.amount);
+      else if (r.type === "saida") expense += Number(r.amount);
+    }
+    if (!data || data.length < TX_PAGE_SIZE) break;
   }
   return { income, expense };
 }

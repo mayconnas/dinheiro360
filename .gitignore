@@ -34,3 +34,9 @@ yarn-error.log*
 # logs locais
 dev.log
 *.log
+
+# ferramentas locais (worktrees de agentes etc.)
+.claude/
+
+# cobertura de testes
+coverage/
