@@ -13,6 +13,9 @@
 import "server-only";
 import type { DbClient, Tables } from "@/lib/supabase/database.types";
 import { decryptSecret, encryptSecret, isEncrypted, maskSecret } from "@/lib/security/secret-box";
+import { logger } from "@/lib/observability/logger";
+
+const log = logger.child({ module: "credential-store" });
 
 export type CredentialProvider = Tables<"ai_credentials">["provider"];
 
@@ -111,6 +114,6 @@ async function reencryptLegacy(
       .eq("user_id", userId)
       .eq("provider", provider);
   } catch (e) {
-    console.warn("[credential-store] chave legada ainda em texto puro:", e instanceof Error ? e.message : e);
+    log.warn("chave legada continua em texto puro (recifragem falhou)", { err: e, provider });
   }
 }

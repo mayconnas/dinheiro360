@@ -8,6 +8,9 @@ import { runPluggySync } from "@/lib/pluggy/sync";
 import { reprocessPayloadForUser } from "@/lib/pluggy/reprocess";
 import { deleteItem } from "@/lib/pluggy/client";
 import { cleanNameOnly } from "@/lib/engine/bank-name";
+import { logger } from "@/lib/observability/logger";
+
+const log = logger.child({ module: "pluggy-actions" });
 
 
 /** Um banco individual dentro de uma conexão (conta vinculada ao item). */
@@ -194,7 +197,7 @@ export async function disconnectItem(
     try {
       await deleteItem(itemId);
     } catch (e) {
-      console.error("[pluggy disconnect] deleteItem falhou:", e);
+      log.error("deleteItem falhou ao desconectar", { err: e });
     }
 
     const { error } = await supabase
@@ -248,7 +251,7 @@ export async function reSyncPluggyPayload(): Promise<ReSyncResult> {
     revalidatePath("/transacoes");
     return { ok: true, updated, notFound };
   } catch (e) {
-    console.error("[reSyncPluggyPayload] falhou:", e);
+    log.error("reprocessamento do payload falhou", { err: e });
     return { ok: false, updated: 0, notFound: 0, error: e instanceof Error ? e.message : "erro" };
   }
 }

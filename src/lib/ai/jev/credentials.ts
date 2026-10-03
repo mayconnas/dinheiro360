@@ -16,6 +16,9 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { readCredential } from "@/lib/ai/credential-store";
 import { JEV_DEFAULT_MODEL } from "./config";
+import { logger } from "@/lib/observability/logger";
+
+const log = logger.child({ module: "jev-credentials" });
 
 export const TYPESAFE_PROVIDER = "typesafe" as const;
 
@@ -32,7 +35,7 @@ export async function getTypeSafeCredential(userId: string): Promise<TypeSafeCre
     if (cred) return { apiKey: cred.apiKey, model: cred.model?.trim() || envModel(), source: "user" };
   } catch (e) {
     // Falha de leitura/decifragem não derruba a tela — cai no fallback da env.
-    console.error("[ai/jev] getTypeSafeCredential falhou:", e instanceof Error ? e.message : e);
+    log.error("leitura da credencial TypeSafe falhou", { err: e });
   }
 
   const envKey = process.env.TYPESAFE_API_KEY?.trim();

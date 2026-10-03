@@ -354,11 +354,13 @@ para o log (`module: "health"`).
 ### 7.2 Quem consulta
 
 - **Docker / Swarm:** `HEALTHCHECK` no `Dockerfile` e `healthcheck` no
-  `stack.yml` (a cada 30 s, timeout 5 s, 3 falhas seguidas, 30 s de
-  carência na subida). Task *unhealthy* é substituída pelo Swarm, e um deploy
-  cuja task nova não fica *healthy* é revertido.
-  Consequência: **se o banco cair, as tasks ficam unhealthy e são recicladas**
-  — o app não teria como funcionar sem banco de qualquer forma.
+  `stack.yml` usam a sonda de *liveness*, `/api/health?probe=live` (a cada
+  30 s, timeout 5 s, 3 falhas seguidas, 30 s de carência na subida). Ela só
+  confirma que o processo Node responde — de propósito não consulta o banco:
+  se o Supabase cair, reiniciar o container não resolve nada, e uma sonda
+  dependente do banco faria o Swarm reciclar o app em loop. Task *unhealthy*
+  é substituída pelo Swarm, e um deploy cuja task nova não fica *healthy* é
+  revertido.
 - **Workflow de deploy:** espera `ok` com o commit novo.
 - **Traefik:** mantém o health check próprio em `/login`.
 

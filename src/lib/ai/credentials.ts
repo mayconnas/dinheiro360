@@ -11,6 +11,9 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { readCredential } from "./credential-store";
 import { AI_PROVIDERS, type AiProvider } from "./provider-meta";
+import { logger } from "@/lib/observability/logger";
+
+const log = logger.child({ module: "ai-credentials" });
 
 export interface ActiveCredential {
   provider: AiProvider;
@@ -32,7 +35,7 @@ export async function getActiveCredential(userId: string): Promise<ActiveCredent
     return { provider: cred.provider as AiProvider, apiKey: cred.apiKey, model: cred.model };
   } catch (e) {
     // Falha de leitura/decifragem não derruba o app — cai no fallback.
-    console.error("[ai/credentials] getActiveCredential falhou:", e instanceof Error ? e.message : e);
+    log.error("leitura da credencial ativa falhou", { err: e });
     return null;
   }
 }

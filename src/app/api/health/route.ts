@@ -8,6 +8,15 @@
 //   200 → { status: "ok", ... }        tudo certo
 //   503 → { status: "degraded", ... }  algum check falhou
 //
+// Duas sondas:
+//   GET /api/health              readiness: checa o banco. Para o deploy
+//                                e para monitores externos.
+//   GET /api/health?probe=live   liveness: só "o processo responde". É a
+//                                que o HEALTHCHECK do container usa — se
+//                                dependesse do banco, uma queda do Supabase
+//                                faria o Swarm reciclar o app em loop sem
+//                                que reiniciar resolvesse nada.
+//
 // Público e SEM sessão (o middleware não redireciona /api/*). Por isso
 // a resposta nunca carrega segredo nem mensagem crua do banco — o
 // detalhe completo da falha vai só para o log estruturado.
@@ -77,7 +86,14 @@ async function checkDatabase(): Promise<CheckResult> {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.get("probe") === "live") {
+    return NextResponse.json(
+      { status: "ok", uptimeSeconds: Math.round(process.uptime()) },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   const database = await checkDatabase();
   const status: HealthBody["status"] = database.ok ? "ok" : "degraded";
 

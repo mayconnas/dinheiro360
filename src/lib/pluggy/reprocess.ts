@@ -15,6 +15,9 @@ import { toJsonColumn, toPaymentMethodColumn, toStatusColumn } from "@/lib/data/
 import { fetchAllItemTransactions } from "@/lib/pluggy/sync";
 import { pluggyConnector } from "@/lib/engine/pluggy";
 import { normalize } from "@/lib/engine/normalizer";
+import { logger } from "@/lib/observability/logger";
+
+const log = logger.child({ module: "pluggy-reprocess" });
 
 export interface ReprocessResult {
   updated: number;
@@ -67,7 +70,7 @@ export async function reprocessPayloadForUser(
     try {
       pluggyTxs = await fetchAllItemTransactions(itemId as string);
     } catch (e) {
-      console.error(`[reprocessPayloadForUser] item ${itemId} falhou:`, e);
+      log.error("item da Pluggy falhou no reprocessamento", { err: e, itemId });
       continue;
     }
 
@@ -122,7 +125,7 @@ export async function reprocessPayloadForUser(
       );
       for (const res of results) {
         if (res.error) {
-          console.error("[reprocessPayloadForUser] update falhou:", res.error.message);
+          log.error("update do reprocessamento falhou", { err: res.error });
           continue;
         }
         updated++;

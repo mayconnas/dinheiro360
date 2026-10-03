@@ -10,6 +10,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runPluggySync } from "@/lib/pluggy/sync";
 import { toJsonColumn } from "@/lib/data/mappers";
+import { logger } from "@/lib/observability/logger";
+
+const log = logger.child({ module: "pluggy-webhook" });
 
 const PLUGGY_WEBHOOK_IP = "52.67.145.81";
 
@@ -100,7 +103,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     // Não retornamos 5xx por erro de sync (a Pluggy re-tentaria em loop);
     // logamos e devolvemos 200. O cron pega de novo depois.
-    console.error("[pluggy webhook] sync falhou:", e);
+    log.error("sync disparado pelo webhook falhou", { err: e, itemId });
   }
 
   return NextResponse.json({ ok: true });

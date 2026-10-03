@@ -53,7 +53,7 @@ services:
     # Mesmo check do HEALTHCHECK do Dockerfile (redeclarado para ficar
     # explícito no stack). 503 em /api/health → task "unhealthy".
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:3000/api/health?probe=live' || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

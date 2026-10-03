@@ -50,6 +50,9 @@ import {
 import type { Account, CategoryKind, TransactionType } from "@/lib/types";
 import { listCredentialSummaries, writeCredential } from "@/lib/ai/credential-store";
 import { apiKey as apiKeySchema, modelName, parseInput, uuid, ValidationError } from "@/lib/validation";
+import { logger } from "@/lib/observability/logger";
+
+const log = logger.child({ module: "jev" });
 
 
 const isUuid = (v: unknown): v is string => uuid.safeParse(v).success;
@@ -479,7 +482,7 @@ export async function categorizeWithJev(ids: string[]): Promise<JevCategorizeRes
 
     const dropped = optionsByKind.receita.dropped + optionsByKind.despesa.dropped;
     if (dropped > 0) {
-      console.warn(`[jev] ${dropped} categoria(s) ficaram fora das opções pelo limite de 255 da API.`);
+      log.warn("categorias fora das opções pelo limite de 255 da API", { dropped });
     }
 
     return { ok: true, decisions, skipped, model, requests, inputTokens };
@@ -612,7 +615,7 @@ export async function applyJevDecisions(
             .ilike("description", `%${escapeLike(g.description)}%`)
             .limit(1);
           if (error) {
-            console.error("[jev] checagem de conflito p/ regra falhou:", error.message);
+            log.error("checagem de conflito para regra falhou", { err: error });
             conflicting.add(key); // na dúvida, não aprende
           } else if (data && data.length > 0) {
             conflicting.add(key);
@@ -630,7 +633,7 @@ export async function applyJevDecisions(
           }
         } catch (e) {
           // regra é bônus — não derruba a aplicação das categorias
-          console.error("[jev] falha ao aprender regra:", errorMessage(e, "erro"));
+          log.error("falha ao aprender regra", { err: e });
         }
       }
     }
