@@ -2,12 +2,19 @@
 # Stack Swarm — Gestor 360 · rota Traefik em dinheiro360.systemmn.site
 # Segue o mesmo padrão dos outros apps da VPS (rede vpsnet, websecure,
 # letsencryptresolver). Adiciona um service novo; não toca nos existentes.
+#
+# Deploy (normalmente feito pelo workflow .github/workflows/deploy.yml):
+#   set -a; . ./.env; set +a
+#   IMAGE=ghcr.io/<owner>/<repo>:<sha> APP_VERSION=v1.2.3 GIT_SHA=<sha> \
+#     docker stack deploy -c stack.yml dinheiro360 --with-registry-auth
+# Sem IMAGE, cai na imagem local `gestor360:latest` (build manual na VPS).
+# Runbook completo: docs/OPERACAO.md
 # ─────────────────────────────────────────────────────────────
 version: "3.8"
 
 services:
   app:
-    image: gestor360:latest
+    image: "${IMAGE:-gestor360:latest}"
     environment:
       NODE_ENV: production
       # NEXT_PUBLIC_* também vão embutidas no build; mantidas aqui por garantia (SSR).
@@ -32,12 +39,44 @@ services:
       # esta é só a chave padrão do servidor.
       TYPESAFE_API_KEY: "${TYPESAFE_API_KEY:-}"
       TYPESAFE_MODEL: "${TYPESAFE_MODEL:-jev-latest}"
+      # Criptografia das chaves de API dos usuários em repouso (ai_credentials).
+      # Chave AES-256 em base64 — 32 bytes. Gerar com: openssl rand -base64 32
+      # OBRIGATÓRIA. Trocar a chave invalida as chaves já salvas.
+      AI_CREDENTIALS_ENCRYPTION_KEY: "${AI_CREDENTIALS_ENCRYPTION_KEY}"
+      # Observabilidade — nível do logger estruturado (debug | info | warn | error)
+      # e rastreabilidade exibida em /api/health (preenchidas pelo deploy).
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      APP_VERSION: "${APP_VERSION:-dev}"
+      GIT_SHA: "${GIT_SHA:-}"
     networks:
       - vpsnet
+    # Mesmo check do HEALTHCHECK do Dockerfile (redeclarado para ficar
+    # explícito no stack). 503 em /api/health → task "unhealthy".
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       replicas: 1
       restart_policy:
         condition: on-failure
+      # Zero downtime: sobe a task nova, espera ficar healthy e só então
+      # derruba a antiga. Se a nova falhar no período de monitoramento,
+      # o Swarm volta sozinho para a versão anterior.
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+      rollback_config:
+        parallelism: 1
+        delay: 0s
+        order: start-first
+        failure_action: pause
+        monitor: 30s
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.gestor360.entrypoints=websecure"
