@@ -216,7 +216,7 @@ function initialsOf(name: string): string {
     .map((w) => w[0])
     .join("")
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
+    .replace(/[^\p{Lu}\p{N}]/gu, ""); // mantém iniciais acentuadas ("Érica" → "É")
   return letters || "•";
 }
 

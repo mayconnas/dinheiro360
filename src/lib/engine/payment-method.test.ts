@@ -56,11 +56,11 @@ describe("inferPaymentMethod (heurística sobre a descrição bruta)", () => {
     expect(inferPaymentMethod("   ")).toBeNull();
   });
 
-  // BUG (payment-method.ts:165-166): "TED"/"DOC" são buscados como
+  // Regressão (corrigido) (payment-method.ts:165-166): "TED"/"DOC" são buscados como
   // substring, sem fronteira de palavra — "DOCE", "DOCUMENTO",
   // "UNITED" etc. viram transferência, contrariando o "PRECISÃO >
   // cobertura" documentado. Sugestão: usar /\b(TED|DOC)\b/.
-  it.fails("não classifica 'PADARIA DOCE SABOR' como transferência (BUG: substring 'DOC')", () => {
+  it("não classifica 'PADARIA DOCE SABOR' como transferência", () => {
     expect(inferPaymentMethod("PADARIA DOCE SABOR")).toBeNull();
   });
 });

@@ -305,8 +305,9 @@ export function computeIndicators(input: IndicatorInputs): Indicator[] {
     cashBalanceOverride ?? netBalanceOverride ?? netBalance(txs, accounts);
   const avgExpense = avgMonthlyExpense(txs, month);
 
-  const last3 = previousMonths(month, 3).concat(month); // antigo → novo (após reverse)
-  const monthsAsc = [...last3].reverse();
+  // previousMonths devolve do mais recente para o mais antigo (m-1, m-2, m-3):
+  // inverte só essa parte e acrescenta o mês atual no fim → antigo → novo.
+  const monthsAsc = [...previousMonths(month, 3)].reverse().concat(month);
 
   const indicators: Indicator[] = [];
 
@@ -414,9 +415,10 @@ export function computeIndicators(input: IndicatorInputs): Indicator[] {
 /** Índice do degrau da escada de prioridades (o indicador mais crítico manda). */
 export function criticalIndicator(indicators: Indicator[]): Indicator | null {
   const order = ["critico", "atencao", "bom", "sem_dados"] as const;
-  for (const status of order) {
+  // Só "critico" e "atencao" definem o degrau; o primeiro que existir manda.
+  for (const status of order.slice(0, 2)) {
     const found = indicators.find((i) => i.status === status);
-    if (status === "critico" || status === "atencao") return found ?? null;
+    if (found) return found;
   }
   return null;
 }

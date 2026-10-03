@@ -98,6 +98,9 @@ export function parseAmount(raw: string): number {
     }
   } else if (hasComma) {
     s = s.replace(",", ".");
+  } else if ((s.match(/\./g) ?? []).length > 1) {
+    // "1.234.567" — vários pontos sem vírgula só podem ser milhar
+    s = s.replace(/\./g, "");
   }
   const n = parseFloat(s);
   return negative ? -n : n;

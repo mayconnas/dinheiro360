@@ -197,12 +197,12 @@ describe("computeIndicators", () => {
     expect(res[1].status).toBe("critico");
   });
 
-  // BUG (indicators.ts:308-309): `previousMonths(month, 3).concat(month)`
+  // Regressão (corrigido) (indicators.ts:308-309): `previousMonths(month, 3).concat(month)`
   // já dá [m-1, m-2, m-3, m]; o `.reverse()` seguinte produz
   // [m, m-3, m-2, m-1] — o mês ATUAL vira o primeiro da série. A
   // tendência compara o mês atual com o anterior ao contrário e o valor
   // de "tendencia_fluxo" mostra a sobra do mês passado.
-  it.fails("tendência de fluxo usa a série em ordem cronológica (BUG: ordem dos meses invertida)", () => {
+  it("tendência de fluxo usa a série em ordem cronológica", () => {
     const crescente = [
       tx({ date: "2026-04-10", type: "entrada", amount: 100 }),
       tx({ date: "2026-05-10", type: "entrada", amount: 200 }),
@@ -236,11 +236,11 @@ describe("criticalIndicator", () => {
     expect(criticalIndicator([ind("a", "bom"), ind("b", "sem_dados")])).toBeNull();
   });
 
-  // BUG (indicators.ts:417-419): o laço retorna já na 1ª iteração
+  // Regressão (corrigido) (indicators.ts:417-419): o laço retorna já na 1ª iteração
   // ("critico") — `return found ?? null` — então "atencao" nunca é
   // consultado. Sem indicador crítico, o degrau da escada cai direto em
   // "Otimizar e investir" mesmo com indicadores em atenção.
-  it.fails("sem crítico, devolve o primeiro em atenção (BUG: retorna null)", () => {
+  it("sem crítico, devolve o primeiro em atenção", () => {
     const list = [ind("a", "bom"), ind("b", "atencao")];
     expect(criticalIndicator(list)?.key).toBe("b");
   });

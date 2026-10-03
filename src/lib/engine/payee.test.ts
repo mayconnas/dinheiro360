@@ -18,10 +18,10 @@ describe("normalizePayeeName (chave de dedup)", () => {
     expect(normalizePayeeName("Empresa XYZ")).toBe(normalizePayeeName("EMPRESA XYZ LTDA"));
   });
 
-  // BUG (payee.ts:100-101 e 110-112): o regex de sufixos roda ANTES de remover a
+  // Regressão (corrigido) (payee.ts:100-101 e 110-112): o regex de sufixos roda ANTES de remover a
   // pontuação e só aceita "s/a" ou "sa" — "S.A." (com pontos), a grafia
   // mais comum, vira "s a" e não casa com "Empresa XYZ".
-  it.fails("'Empresa XYZ S.A.' cai na mesma chave que 'Empresa XYZ' (BUG: 'S.A.' com pontos não é removido)", () => {
+  it("'Empresa XYZ S.A.' cai na mesma chave que 'Empresa XYZ'", () => {
     expect(normalizePayeeName("Empresa XYZ S.A.")).toBe(normalizePayeeName("Empresa XYZ"));
   });
 });
@@ -56,22 +56,22 @@ describe("extractPayeeName", () => {
     expect(extractPayeeName({ counterpartyName: "   ", rawDescription: "" })).toBeNull();
   });
 
-  // BUG (payee.ts:17-18 e 45-56): o formato real da Pluggy citado em
+  // Regressão (corrigido) (payee.ts:17-18 e 45-56): o formato real da Pluggy citado em
   // pluggy.ts — "Transferência Enviada|Maria Oliveira Santos" — não é
   // limpo: /TRANSFEREN.../i não casa o "Ê" acentuado e o "|" no meio do
   // texto não é tratado como separador. Resultado hoje:
   // "Transferência |maria Oliveira Santos". Correção sugerida: remover
   // acentos antes de aplicar OPERATION_PREFIXES e trocar "|" por espaço.
-  it.fails("extrai o nome do formato 'Transferência Enviada|Nome' da Pluggy (BUG: acento e '|')", () => {
+  it("extrai o nome do formato 'Transferência Enviada|Nome' da Pluggy", () => {
     expect(extractPayeeName({ rawDescription: "Transferência Enviada|Maria Oliveira Santos" })).toBe(
       "Maria Oliveira Santos"
     );
   });
 
-  // BUG: estabelecimentos conhecidos casam por substring sem fronteira de
+  // Regressão (corrigido): estabelecimentos conhecidos casam por substring sem fronteira de
   // palavra — "posto" dentro de "IMPOSTO", "raia" dentro de "PRAIA",
   // "extra" dentro de "EXTRATO" viram estabelecimentos que não são.
-  it.fails("não confunde 'IMPOSTO' com o estabelecimento 'Posto' (BUG: substring sem fronteira)", () => {
+  it("não confunde 'IMPOSTO' com o estabelecimento 'Posto'", () => {
     expect(extractPayeeName({ rawDescription: "PAGAMENTO IMPOSTO DE RENDA" })).not.toBe("Posto");
   });
 });

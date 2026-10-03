@@ -36,10 +36,10 @@ describe("parseAmount", () => {
     expect(parseAmount("abc")).toBeNaN();
   });
 
-  // BUG (connectors.ts:92-102): só com pontos e sem vírgula, o valor é
+  // Regressão (corrigido) (connectors.ts:92-102): só com pontos e sem vírgula, o valor é
   // lido como decimal en-US — "1.234.567" (milhar pt-BR) vira 1,234.
   // Mais de um ponto sem vírgula só pode ser separador de milhar.
-  it.fails("lê '1.234.567' como 1234567 (BUG: múltiplos pontos tratados como decimal)", () => {
+  it("lê '1.234.567' como 1234567", () => {
     expect(parseAmount("1.234.567")).toBe(1234567);
   });
 });

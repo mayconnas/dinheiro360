@@ -118,11 +118,11 @@ describe("groupByPayee", () => {
     expect(groups.map((g) => g.initials)).toEqual(["JS", "I", "•"]);
   });
 
-  // BUG (view-helpers.ts:219): `.replace(/[^A-Z0-9]/g, "")` apaga letras
+  // Regressão (corrigido) (view-helpers.ts:219): `.replace(/[^A-Z0-9]/g, "")` apaga letras
   // acentuadas — "Érica Souza" vira só "S" e "Ângela" vira "•". Nomes
   // brasileiros com inicial acentuada perdem o avatar. Sugestão: filtrar
   // com /[^\p{Lu}\p{N}]/gu.
-  it.fails("mantém iniciais acentuadas como em 'Érica Souza' (BUG: regex só aceita A-Z)", () => {
+  it("mantém iniciais acentuadas como em 'Érica Souza'", () => {
     const [g] = groupByPayee([tx({ description: "Érica Souza" })]);
     expect(g.initials).toBe("ÉS");
   });

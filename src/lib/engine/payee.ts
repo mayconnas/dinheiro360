@@ -12,31 +12,37 @@ import type { TransactionType } from "@/lib/types";
 
 export type PayeeKind = "pessoa" | "empresa" | "estabelecimento" | "desconhecido";
 
+/**
+ * Termo inteiro, com fronteira de palavra Unicode. O \b do JavaScript só
+ * entende ASCII: "TRANSFERÊNCIA" nunca casava /\bTRANSFERENCIA\b/.
+ */
+const word = (body: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`, "giu");
+
 /** Prefixos/termos de operação bancária a remover antes de sobrar o nome. */
 const OPERATION_PREFIXES: RegExp[] = [
-  /\bTRANSFEREN(?:CIA|C[IÍ]A)\s+(?:ENVIADA|RECEBIDA)\b/gi,
-  /\bTRANSFEREN(?:CIA|C[IÍ]A)\b/gi,
-  /\bPIX\s+(?:ENVIADO|RECEBIDO)\b/gi,
-  /\bPIX\b/gi,
-  /\bTED\b/gi,
-  /\bDOC\b/gi,
-  /\bBOLETO\b/gi,
-  /\bPAGAMENTO\s+DE\s+BOLETO\b/gi,
-  /\bPAGAMENTO\b/gi,
-  /\bCOMPRA\s+(?:NO\s+)?CARTAO\b/gi,
-  /\bCOMPRA\b/gi,
-  /\bCART[AÃ]O\s+DE\s+CREDITO\b/gi,
-  /\bCART[AÃ]O\b/gi,
-  /\bDEBITO\b/gi,
-  /\bCREDITO\b/gi,
-  /\bSAQUE\b/gi,
-  /\bDEPOSITO\b/gi,
-  /\bSAL[AÁ]RIO\b/gi,
-  /\bREMUNERA[CÇ][AÃ]O\b/gi,
-  /\bRESGATE\b/gi,
-  /\bAPLICA[CÇ][AÃ]O\b/gi,
-  /\bENVIADA?\b/gi,
-  /\bRECEBIDA?\b/gi,
+  word("TRANSFER[EÊ]NCIA\\s+(?:ENVIADA|RECEBIDA)"),
+  word("TRANSFER[EÊ]NCIA"),
+  word("PIX\\s+(?:ENVIADO|RECEBIDO)"),
+  word("PIX"),
+  word("TED"),
+  word("DOC"),
+  word("PAGAMENTO\\s+DE\\s+BOLETO"),
+  word("BOLETO"),
+  word("PAGAMENTO"),
+  word("COMPRA\\s+(?:NO\\s+)?CART[AÃ]O"),
+  word("COMPRA"),
+  word("CART[AÃ]O\\s+DE\\s+CR[EÉ]DITO"),
+  word("CART[AÃ]O"),
+  word("D[EÉ]BITO"),
+  word("CR[EÉ]DITO"),
+  word("SAQUE"),
+  word("DEP[OÓ]SITO"),
+  word("SAL[AÁ]RIO"),
+  word("REMUNERA[CÇ][AÃ]O"),
+  word("RESGATE"),
+  word("APLICA[CÇ][AÃ]O"),
+  word("ENVIADA?"),
+  word("RECEBIDA?"),
 ];
 
 /** Ruído residual: pedidos, parcelas, máscaras, datas/horas soltas. */
@@ -92,13 +98,18 @@ const KNOWN_MERCHANTS: { match: string; canonical: string }[] = [
 ];
 
 /** Remove acentos (NFD → strip combining marks). */
+/** Compilados uma vez; casam no início de uma palavra ("posto" não casa "imposto", "raia" não casa "praia"). */
+const KNOWN_MERCHANT_PATTERNS = KNOWN_MERCHANTS.map((entry) => ({
+  canonical: entry.canonical,
+  re: new RegExp(`(?<![a-z0-9])${entry.match.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+}));
+
 function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
 /** Sufixos societários removidos na chave de dedup (não no nome exibido). */
-const COMPANY_SUFFIXES =
-  /\b(ltda|me|epp|s\/?a|sa|eireli|mei|holding|group|grupo)\b\.?/gi;
+const COMPANY_SUFFIXES = /\b(ltda|me|epp|s a|sa|eireli|mei|holding|group|grupo)\b/g;
 
 /**
  * Chave de dedup: minúsculo, sem acento, colapsa espaços, remove
@@ -108,8 +119,9 @@ const COMPANY_SUFFIXES =
  */
 export function normalizePayeeName(name: string): string {
   let s = stripAccents(name).toLowerCase();
+  // pontuação antes dos sufixos: "S.A." e "S/A" viram "s a" e casam o sufixo
+  s = s.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ");
   s = s.replace(COMPANY_SUFFIXES, " ");
-  s = s.replace(/[^\p{L}\p{N}\s]/gu, " "); // pontuação fora
   s = s.replace(/\s+/g, " ").trim();
   return s;
 }
@@ -150,11 +162,11 @@ export function extractPayeeName(input: ExtractPayeeInput): string | null {
   // estabelecimento conhecido: verifica no raw (case-insensitive) antes
   // de qualquer remoção, pois o match costuma incluir separadores (* etc).
   const haystack = stripAccents(raw).toLowerCase();
-  for (const entry of KNOWN_MERCHANTS) {
-    if (haystack.includes(entry.match)) return entry.canonical;
+  for (const entry of KNOWN_MERCHANT_PATTERNS) {
+    if (entry.re.test(haystack)) return entry.canonical;
   }
 
-  let s = raw;
+  let s = raw.replace(/\|/g, " ");
   for (const pattern of OPERATION_PREFIXES) s = s.replace(pattern, " ");
   for (const pattern of RESIDUE_PATTERNS) s = s.replace(pattern, " ");
   s = s.replace(/\s+/g, " ").trim();

@@ -114,8 +114,8 @@ export function mapPluggyPaymentMethod(
     if (method.includes("BOLETO")) return "boleto";
     if (method === "DEBIT" || method.includes("DEBITO")) return "debito";
     if (
-      method.includes("TED") ||
-      method.includes("DOC") ||
+      hasWord(method, "TED") ||
+      hasWord(method, "DOC") ||
       method.includes("TRANSFER") // cobre TRANSFER, TRANSFERENCIA, WIRE_TRANSFER etc.
     )
       return "transferencia";
@@ -126,7 +126,7 @@ export function mapPluggyPaymentMethod(
   if (op) {
     if (op.includes("PIX")) return "pix";
     if (op.includes("BOLETO")) return "boleto";
-    if (op.includes("TED") || op.includes("DOC") || op.includes("TRANSFER"))
+    if (hasWord(op, "TED") || hasWord(op, "DOC") || op.includes("TRANSFER"))
       return "transferencia";
   }
 
@@ -155,6 +155,14 @@ export function mapPluggyPaymentMethod(
  *    pista — aparecem tanto em débito quanto crédito, então por si
  *    só não classificam com confiança.
  */
+/**
+ * Sigla como palavra inteira: "DOC" casa "PIX/DOC" e "TED_DOC", mas não
+ * "PADARIA DOCE"; "TED" não casa "ACCEPTED". Texto já em maiúsculas.
+ */
+function hasWord(text: string, w: string): boolean {
+  return new RegExp(`(?<![A-Z0-9])${w}(?![A-Z0-9])`).test(text);
+}
+
 export function inferPaymentMethod(rawDescription: string): PaymentMethod | null {
   const s = normalizeForMatch(rawDescription);
   if (!s.trim()) return null;
@@ -162,8 +170,8 @@ export function inferPaymentMethod(rawDescription: string): PaymentMethod | null
   if (s.includes("PIX")) return "pix";
   if (s.includes("BOLETO")) return "boleto";
   if (
-    s.includes("TED") ||
-    s.includes("DOC") ||
+    hasWord(s, "TED") ||
+    hasWord(s, "DOC") ||
     s.includes("TRANSFERENCIA") ||
     s.includes("TRANSFERENCIA ENVIADA") ||
     s.includes("TRANSFERENCIA RECEBIDA")

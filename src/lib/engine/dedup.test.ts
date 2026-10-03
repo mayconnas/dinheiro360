@@ -45,7 +45,7 @@ describe("descriptionSimilarity (Jaccard sobre palavras)", () => {
 });
 
 describe("isSameTransaction", () => {
-  const a = { date: "2026-07-10", amount: 45.9, description: "Ifood Restaurante" };
+  const a = { date: "2026-07-10", amount: 45.9, description: "Ifood Restaurante", type: "saida" as const };
 
   it("considera duplicata: mesmo valor, data dentro da janela e descrição similar", () => {
     expect(isSameTransaction(a, { ...a, date: "2026-07-13" })).toBe(true);
@@ -68,6 +68,10 @@ describe("isSameTransaction", () => {
     expect(isSameTransaction(a, { ...a, amount: 45.904 })).toBe(true);
   });
 
+  it("rejeita tipos opostos (entrada x saída) mesmo com valor e descrição iguais", () => {
+    expect(isSameTransaction(a, { ...a, type: "entrada" })).toBe(false);
+  });
+
   it("rejeita descrições pouco similares (abaixo de 0,72)", () => {
     // 2/3 ≈ 0,67 < 0,72
     expect(isSameTransaction(a, { ...a, description: "Ifood Restaurante Sabor" })).toBe(false);
@@ -83,7 +87,7 @@ describe("isSameTransaction", () => {
 
 describe("dedupeAgainstExisting", () => {
   it("separa o que já existe (skipped) do que é novo (toInsert)", () => {
-    const existing = [{ date: "2026-07-10", amount: 45.9, description: "Ifood Restaurante" }];
+    const existing = [{ date: "2026-07-10", amount: 45.9, description: "Ifood Restaurante", type: "saida" as const }];
     const repetida = norm({ date: "2026-07-11" });
     const nova = norm({ description: "Uber Trip", amount: 23.5 });
     const result = dedupeAgainstExisting([repetida, nova], existing);
@@ -96,11 +100,11 @@ describe("dedupeAgainstExisting", () => {
     expect(dedupeAgainstExisting(incoming, []).toInsert).toHaveLength(2);
   });
 
-  // BUG: a comparação ignora `type`. Um Pix ENVIADO e um Pix RECEBIDO do
+  // Regressão (corrigido): a comparação ignora `type`. Um Pix ENVIADO e um Pix RECEBIDO do
   // mesmo valor para a mesma pessoa limpam para a mesma descrição
   // ("Joao Silva"), então a devolução (entrada) é descartada como
   // duplicata da saída — o dinheiro some do extrato.
-  it.fails("não trata como duplicata uma entrada e uma saída de mesmo valor (BUG: ignora type)", () => {
+  it("não trata como duplicata uma entrada e uma saída de mesmo valor", () => {
     const existing = [{ date: "2026-07-10", amount: 50, description: "Joao Silva", type: "saida" as const }];
     const devolucao = norm({ date: "2026-07-11", amount: 50, description: "Joao Silva", type: "entrada" });
     expect(dedupeAgainstExisting([devolucao], existing).toInsert).toEqual([devolucao]);

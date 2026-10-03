@@ -6,7 +6,7 @@
 // Função pura.
 // ─────────────────────────────────────────────────────────────
 import type { NormalizedTransaction } from "./normalizer";
-import type { Transaction, TransactionOrigin } from "@/lib/types";
+import type { Transaction, TransactionOrigin, TransactionType } from "@/lib/types";
 
 const DEFAULT_WINDOW_DAYS = 3;
 const SIMILARITY_THRESHOLD = 0.72;
@@ -48,10 +48,13 @@ export function descriptionSimilarity(a: string, b: string): number {
 
 /** Duas transações são a mesma coisa? */
 export function isSameTransaction(
-  a: { date: string; amount: number; description: string },
-  b: { date: string; amount: number; description: string },
+  a: { date: string; amount: number; description: string; type: TransactionType },
+  b: { date: string; amount: number; description: string; type: TransactionType },
   windowDays = DEFAULT_WINDOW_DAYS
 ): boolean {
+  // Pix enviado e Pix devolvido pela mesma pessoa, mesmo valor: a descrição
+  // limpa é igual ("Joao Silva"), mas são lançamentos opostos — não duplicata.
+  if (a.type !== b.type) return false;
   if (Math.abs(a.amount - b.amount) > 0.005) return false;
   if (daysBetween(a.date, b.date) > windowDays) return false;
   return descriptionSimilarity(a.description, b.description) >= SIMILARITY_THRESHOLD;
@@ -72,7 +75,7 @@ export interface DedupResult {
  */
 export function dedupeAgainstExisting(
   incoming: NormalizedTransaction[],
-  existing: Pick<Transaction, "date" | "amount" | "description">[],
+  existing: Pick<Transaction, "date" | "amount" | "description" | "type">[],
   windowDays = DEFAULT_WINDOW_DAYS
 ): DedupResult {
   const toInsert: NormalizedTransaction[] = [];

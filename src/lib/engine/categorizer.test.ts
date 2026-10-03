@@ -198,19 +198,19 @@ describe("dictionaryCategoryId", () => {
     for (const entry of DEFAULT_DICTIONARY) expect(entry.match).toBe(entry.match.toLowerCase());
   });
 
-  // BUG: o haystack só é convertido para minúsculas, sem remover acentos,
+  // Regressão (corrigido): o haystack só é convertido para minúsculas, sem remover acentos,
   // e as entradas do dicionário estão sem acento ("salario", "farmacia",
   // "condominio"...). Descrições acentuadas — comuns em extratos de
   // fintechs — não casam.
-  it.fails("casa descrições acentuadas como 'Salário' e 'Farmácia' (BUG: acentos não são removidos)", () => {
+  it("casa descrições acentuadas como 'Salário' e 'Farmácia'", () => {
     expect(dictionaryCategoryId("Salário", "SALÁRIO EMPRESA X", receitas)).toBe(cats.salario.id);
     expect(dictionaryCategoryId("Farmácia São João", "", despesas)).toBe(cats.saude.id);
   });
 
-  // BUG: casamento por substring sem fronteira de palavra — "posto"
+  // Regressão (corrigido): casamento por substring sem fronteira de palavra — "posto"
   // dentro de "IMPOSTO" vira Transporte; "tim" dentro de "ESTIMATIVA"
   // vira Contas fixas.
-  it.fails("não casa entradas curtas no meio de outra palavra (BUG: 'imposto' → Transporte)", () => {
+  it("não casa entradas curtas no meio de outra palavra", () => {
     expect(dictionaryCategoryId("Pagamento Imposto Renda", "", despesas)).toBeNull();
   });
 });

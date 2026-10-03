@@ -140,15 +140,32 @@ export function dictionaryCategoryId(
   rawDescription: string,
   categories: Category[]
 ): string | null {
-  const haystack = `${description} ${rawDescription}`.toLowerCase();
-  for (const entry of DEFAULT_DICTIONARY) {
-    if (haystack.includes(entry.match)) {
+  const haystack = foldText(`${description} ${rawDescription}`);
+  for (const entry of DICTIONARY_PATTERNS) {
+    if (entry.re.test(haystack)) {
       const id = findCategoryByName(categories, entry.category);
       if (id) return id;
     }
   }
   return null;
 }
+
+/** minúsculas e sem acento — "SALÁRIO" e "salario" viram o mesmo texto. */
+function foldText(s: string): string {
+  return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+/**
+ * Entradas do dicionário compiladas uma vez. Casam no INÍCIO de uma
+ * palavra (não no meio): "posto" não casa "imposto", "tim" não casa
+ * "estimativa" — mas "mercado" ainda casa "mercadopago". Por isso as
+ * descrições categorizadas só pelo dicionário não servem de exemplo
+ * confiável ao Jev (ver app/actions/jev.ts).
+ */
+const DICTIONARY_PATTERNS = DEFAULT_DICTIONARY.map((entry) => ({
+  category: entry.category,
+  re: new RegExp(`(?<![a-z0-9])${entry.match.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+}));
 
 /**
  * Deriva a regra automática a partir de uma correção do usuário (R5).
