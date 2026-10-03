@@ -68,13 +68,17 @@ export const employmentType = z.enum(["clt", "autonomo", "misto"]);
 export const aiProvider = z.enum(["anthropic", "openai", "gemini", "deepseek"]);
 
 /** Nome de modelo de IA (ex "claude-sonnet-5", "jev-1.13.0"). */
-export const modelName = z
-  .string()
-  .trim()
-  .regex(/^[A-Za-z0-9._:/-]{1,80}$/, "Nome de modelo inválido.")
-  .nullable()
-  .optional()
-  .transform((v) => v || null);
+export const modelName = z.preprocess(
+  // vazio/só espaços = "usar o modelo padrão"
+  (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+  z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9._:/-]{1,80}$/, "Nome de modelo inválido.")
+    .nullable()
+    .optional()
+    .transform((v) => v || null)
+);
 
 /** Chave de API: sem espaços, tamanho plausível. */
 export const apiKey = z
