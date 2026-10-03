@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────
+# Stack Swarm — Gestor 360 · rota Traefik em dinheiro360.systemmn.site
+# Segue o mesmo padrão dos outros apps da VPS (rede vpsnet, websecure,
+# letsencryptresolver). Adiciona um service novo; não toca nos existentes.
+# ─────────────────────────────────────────────────────────────
+version: "3.8"
+
+services:
+  app:
+    image: gestor360:latest
+    environment:
+      NODE_ENV: production
+      # NEXT_PUBLIC_* também vão embutidas no build; mantidas aqui por garantia (SSR).
+      NEXT_PUBLIC_SUPABASE_URL: "https://supabase.systemmn.site"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      # Cliente admin (server-only): usado pelo webhook e pelo cron de sync,
+      # que rodam SEM sessão de usuário. Sem isto, a sincronização automática
+      # do Open Finance não funciona.
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      # Open Finance (Pluggy) — necessário para conectar/sincronizar bancos.
+      PLUGGY_CLIENT_ID: "${PLUGGY_CLIENT_ID}"
+      PLUGGY_CLIENT_SECRET: "${PLUGGY_CLIENT_SECRET}"
+      PLUGGY_WEBHOOK_URL: "https://dinheiro360.systemmn.site/api/pluggy/webhook"
+      PLUGGY_WEBHOOK_SECRET: "${PLUGGY_WEBHOOK_SECRET}"
+      # Protege a rota /api/pluggy/sync chamada pelo cron da VPS.
+      CRON_SECRET: "${CRON_SECRET}"
+      # Cérebro/IA — preencher depois no servidor (deploy sem a chave por ora).
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      ANTHROPIC_MODEL: "claude-sonnet-5"
+      # TypeSafe (Jev) — categorização na tela de Transações. Opcional: cada
+      # usuário pode salvar a própria chave em Configurações > Inteligência (IA);
+      # esta é só a chave padrão do servidor.
+      TYPESAFE_API_KEY: "${TYPESAFE_API_KEY:-}"
+      TYPESAFE_MODEL: "${TYPESAFE_MODEL:-jev-latest}"
+    networks:
+      - vpsnet
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.gestor360.entrypoints=websecure"
+        - "traefik.http.routers.gestor360.priority=10"
+        - "traefik.http.routers.gestor360.rule=Host(`dinheiro360.systemmn.site`)"
+        - "traefik.http.routers.gestor360.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.gestor360.loadbalancer.server.port=3000"
+        - "traefik.http.services.gestor360.loadbalancer.healthcheck.path=/login"
+        - "traefik.http.services.gestor360.loadbalancer.healthcheck.interval=60s"
+
+networks:
+  vpsnet:
+    external: true

@@ -1,0 +1,5 @@
+# Repositório sempre com LF (Docker, CI e scripts shell rodam em Linux)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
