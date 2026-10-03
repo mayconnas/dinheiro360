@@ -6,6 +6,9 @@ Gestão financeira pessoal como se você tivesse contratado um gestor: o app imp
 
 O princípio que sustenta a arquitetura: **separar o que calcula do que aconselha**. Saldo, orçamento, projeção e indicadores saem de código determinístico e testado. A IA nunca faz conta — ela recebe os números prontos e decide o que fazer com eles.
 
+
+![Painel do Gestor Financeiro 360](docs/screenshots/painel.png)
+
 ---
 
 ## O que o app faz
@@ -15,6 +18,30 @@ O princípio que sustenta a arquitetura: **separar o que calcula do que aconselh
 - **Categoriza com IA de decisão** ([TypeSafe Jev](https://docs.typesafe.ai)): cada lançamento pendente recebe a categoria mais provável entre as suas, com o grau de confiança. Você revisa antes de aplicar.
 - **Calcula** orçamento por categoria, projeção do mês, anomalias, recorrências (assinaturas e contas fixas) e indicadores de saúde financeira.
 - **Aconselha**: o Gestor (Claude, GPT, Gemini ou DeepSeek — você escolhe e usa a sua chave) faz diagnóstico e responde perguntas com base no Pacote de Contexto.
+
+
+---
+
+## Telas
+
+> Prints de uma conta de demonstração com dados fictícios.
+
+| Transações | Orçamento |
+|---|---|
+| ![Transações com lançamentos a revisar e o botão Categorizar com Jev](docs/screenshots/transacoes.png) | ![Orçamento por categoria](docs/screenshots/orcamento.png) |
+| **Metas** | **Categorias** |
+| ![Metas](docs/screenshots/metas.png) | ![Plano de categorias](docs/screenshots/categorias.png) |
+| **Gestor (IA)** | **Configurações · Inteligência (IA)** |
+| ![Chat do Gestor](docs/screenshots/gestor.png) | ![Chaves de IA e TypeSafe Jev](docs/screenshots/configuracoes-ia.png) |
+
+<details>
+<summary><b>Painel completo</b> (placar de saúde, fluxo de caixa, gastos por categoria) e <b>versão celular</b></summary>
+
+<p>
+  <img src="docs/screenshots/painel-completo.png" alt="Painel completo" width="70%">
+  <img src="docs/screenshots/mobile-painel.png" alt="Painel no celular" width="25%">
+</p>
+</details>
 
 ---
 
