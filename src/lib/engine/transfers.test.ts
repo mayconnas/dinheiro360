@@ -9,6 +9,7 @@ import {
   inferOwnerNames,
   internalTransferIds,
   isInternalTransfer,
+  parseOwnerDocuments,
 } from "./transfers";
 import { FAKE_OWNER_CPF, makeTransaction as tx } from "../../../test/fixtures";
 
@@ -299,5 +300,19 @@ describe("classifyForViews (fluxo de caixa × controle de gastos)", () => {
   it("expõe o resultado legado intacto para retrocompatibilidade", () => {
     expect(views.legacy.cardPurchase.has("compra-cartao")).toBe(true);
     expect(views.billPayments.billPaymentCard.has("fatura-cartao")).toBe(true);
+  });
+});
+
+describe("parseOwnerDocuments", () => {
+  it("aceita CPF e CNPJ com pontuação, separados por vírgula, e descarta tamanhos inválidos", () => {
+    expect(parseOwnerDocuments("123.456.789-09, 12.345.678/0001-99, 123")).toEqual([
+      "12345678909",
+      "12345678000199",
+    ]);
+  });
+
+  it("sem a variável, não há documentos do dono", () => {
+    expect(parseOwnerDocuments(undefined)).toEqual([]);
+    expect(parseOwnerDocuments("")).toEqual([]);
   });
 });

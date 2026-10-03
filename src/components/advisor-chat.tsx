@@ -5,7 +5,7 @@ import { Sparkles, Send, Stethoscope, User } from "lucide-react";
 import { getDiagnosis, askAdvisor } from "@/app/actions/advisor";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 interface Message {

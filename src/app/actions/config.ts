@@ -253,7 +253,7 @@ export async function addCategory(input: {
   }
 
   let kind = input.kind;
-  let parentId: string | null = input.parentId ?? null;
+  const parentId: string | null = input.parentId ?? null;
   if (parentId) {
     const { data: parent, error: parentErr } = await supabase
       .from("categories")
@@ -304,18 +304,7 @@ export async function listCategories(): Promise<Category[]> {
     .eq("user_id", userId)
     .order("name");
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => ({
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    kind: r.kind,
-    nature: r.nature,
-    color: r.color,
-    isSystem: r.is_system,
-    parentId: r.parent_id ?? null,
-    sortOrder: r.sort_order ?? 0,
-    code: r.code ?? null,
-  }));
+  return (data ?? []).map(toCategory);
 }
 
 export interface CategoryWithUsage extends Category {

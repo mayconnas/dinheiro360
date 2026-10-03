@@ -48,8 +48,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Testes
-        run: npm run test --if-present
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes (com cobertura)
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build

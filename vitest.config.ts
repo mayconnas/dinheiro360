@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Dono das contas nos testes: o mesmo CPF fictício de test/fixtures.ts
+    // (FAKE_OWNER_CPF). Em produção vem da env OWNER_DOCUMENTS.
+    env: { OWNER_DOCUMENTS: "123.456.789-09" },
     include: ["src/**/*.test.ts"],
     coverage: {
       provider: "v8",

@@ -183,10 +183,13 @@ export function JevCategorizeDialog({
     return skipInternal ? scope.ids.filter((id) => !internalIds.has(id)) : scope.ids;
   }, [scope, skipInternal, internalIds]);
 
-  function isAlreadyCorrect(tx: Transaction, categoryId: string | null): boolean {
-    if (!categoryId || tx.categoryId !== categoryId) return false;
-    return !tx.needsReview && !isReviewCategory(catById.get(tx.categoryId));
-  }
+  const isAlreadyCorrect = React.useCallback(
+    (tx: Transaction, categoryId: string | null): boolean => {
+      if (!categoryId || tx.categoryId !== categoryId) return false;
+      return !tx.needsReview && !isReviewCategory(catById.get(tx.categoryId));
+    },
+    [catById]
+  );
 
   function defaultChecked(d: JevDecision): boolean {
     const tx = transactionsById.get(d.transactionId);
@@ -281,7 +284,7 @@ export function JevCategorizeDialog({
         const tx = transactionsById.get(d.transactionId);
         return tx && !d.error && isAlreadyCorrect(tx, d.categoryId);
       }).length,
-    [decisions, transactionsById, catById]
+    [decisions, transactionsById, isAlreadyCorrect]
   );
 
   const applicable = [...checked].filter((id) => choices[id]);

@@ -3,7 +3,6 @@
 import { getWorkspace } from "@/lib/data/repository";
 import { buildContextPackage } from "@/lib/engine/context-package";
 import { diagnose, consult } from "@/lib/ai/brain";
-import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/auth/session";
 import { parseInput } from "@/lib/validation";
 import { z } from "zod";

@@ -124,6 +124,7 @@ Crie a conta na tela de cadastro: o perfil, as contas e as categorias padrão s�
 | `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` | Para Open Finance | Credenciais da Pluggy |
 | `PLUGGY_WEBHOOK_URL` / `PLUGGY_WEBHOOK_SECRET` | Para Open Finance | Webhook público (HTTPS) |
 | `CRON_SECRET` | Para Open Finance | Protege as rotas de sincronização agendada |
+| `OWNER_DOCUMENTS` | Recomendada | CPF/CNPJ do dono das contas (vírgula entre vários). Pix entre esses documentos é transferência entre contas próprias, fora de receita e despesa. |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Não | Chave padrão do Gestor quando o usuário não cadastrou a própria |
 | `TYPESAFE_API_KEY` / `TYPESAFE_MODEL` | Não | Chave padrão do Jev (padrão do modelo: `jev-latest`) |
 | `LOG_LEVEL` | Não | `debug` · `info` (padrão em produção) · `warn` · `error` |

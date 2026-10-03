@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { Plus, Upload, Search, X, BrainCircuit } from "lucide-react";
 import {
   addTransaction,
@@ -199,9 +199,11 @@ function TransactionsViewInner({
     [categories]
   );
 
-  function isReview(t: Transaction): boolean {
-    return t.needsReview || (revisarCategoryId !== null && t.categoryId === revisarCategoryId);
-  }
+  const isReview = useCallback(
+    (t: Transaction): boolean =>
+      t.needsReview || (revisarCategoryId !== null && t.categoryId === revisarCategoryId),
+    [revisarCategoryId]
+  );
 
   // ─── Filtro por período ───
   const inPeriod = useMemo(
@@ -213,7 +215,7 @@ function TransactionsViewInner({
     () => periodSummary(inPeriod, excludedIdSet),
     [inPeriod, excludedIdSet]
   );
-  const reviewCount = useMemo(() => inPeriod.filter(isReview).length, [inPeriod, revisarCategoryId]);
+  const reviewCount = useMemo(() => inPeriod.filter(isReview).length, [inPeriod, isReview]);
 
   // ─── Contagens para os chips (sobre o período, antes do filtro de busca) ───
   const statusCounts = useMemo(() => {
@@ -226,7 +228,7 @@ function TransactionsViewInner({
       else saidas++;
     }
     return { todas: inPeriod.length, revisar, entradas, saidas };
-  }, [inPeriod, revisarCategoryId]);
+  }, [inPeriod, isReview]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -333,7 +335,7 @@ function TransactionsViewInner({
     }
 
     return list;
-  }, [inPeriod, statusFilter, categoryFilter, bankFilter, query, revisarCategoryId]);
+  }, [inPeriod, statusFilter, categoryFilter, bankFilter, query, isReview]);
 
   // ─── Agrupamento (só sobre os itens filtrados) ───
   const dateGroups = useMemo(
@@ -664,7 +666,7 @@ function TransactionsViewInner({
       });
     }
     return scopes;
-  }, [inPeriod, filtered, selected, statusFilter, categoryFilter, bankFilter, query, revisarCategoryId]);
+  }, [inPeriod, filtered, selected, statusFilter, categoryFilter, bankFilter, query, isReview]);
 
   // Transferências entre contas próprias + pagamentos de fatura: não são
   // receita nem despesa — o diálogo oferece pular por padrão.

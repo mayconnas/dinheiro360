@@ -33,7 +33,7 @@ import {
   resolvePayeeIdForTransactionWithCategory,
   commitPayeeAggregates,
 } from "@/lib/data/payees-repo";
-import type { Category, CategoryRule, Transaction } from "@/lib/types";
+import type { Transaction } from "@/lib/types";
 
 /** Transação normalizada carregando a conta Pluggy de origem. */
 type NormalizedWithAccount = NormalizedTransaction & { account?: string };

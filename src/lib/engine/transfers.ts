@@ -441,12 +441,21 @@ export function cleanTotals(
 // ─────────────────────────────────────────────────────────────
 
 /**
- * CPF do dono das contas, só dígitos (123.456.789-09 → "12345678909").
- * TODO: mover para o perfil/config quando o produto suportar múltiplos
- * usuários com CPFs diferentes — hoje é constante porque só há 1 conjunto
- * de contas real sendo sincronizado.
+ * CPF(s)/CNPJ(s) do dono das contas, só dígitos — vêm da env
+ * OWNER_DOCUMENTS (separados por vírgula; pontuação é ignorada). Um Pix
+ * entre documentos do próprio dono é transferência entre contas, não
+ * receita nem despesa. Dado pessoal: nunca fica no código.
+ * Próximo passo para multiusuário: guardar no perfil de cada usuário.
  */
-export const OWNER_DOCUMENTS = ["12345678909"];
+export const OWNER_DOCUMENTS: string[] = parseOwnerDocuments(process.env.OWNER_DOCUMENTS);
+
+/** "123.456.789-09, 12.345.678/0001-99" → ["12345678909", "12345678000199"] (só CPF/CNPJ válidos em tamanho). */
+export function parseOwnerDocuments(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((d) => d.replace(/\D/g, ""))
+    .filter((d) => d.length === 11 || d.length === 14);
+}
 
 export type ClassifyReason =
   | "entre_contas"
@@ -632,9 +641,7 @@ export function classifyTransactions(
 // ─────────────────────────────────────────────────────────────
 // Camada 2.3.2 — PAGAMENTO DE FATURA: a PONTE entre as DUAS VISÕES.
 //
-// O usuário confirmou o modelo exato (ver
-// scratchpad/pagamento-fatura-sinais.txt, sinais tirados dos dados reais
-// dele — CPF 12345678909):
+// Modelo validado com os sinais dos dados reais de produção:
 //
 //  1. FLUXO DE CAIXA = dinheiro líquido que entra/sai das CONTAS.
 //     Receita: recebimentos/salário. Despesa: PIX/débito p/ terceiros +

@@ -97,10 +97,8 @@ export function buildAccountTree(categories: Category[]): BuildTreeResult {
     parentNode.children.push(node);
   }
 
-  // depth: BFS a partir das raízes.
-  const queue: AccountTreeNode[] = roots.map((r) => ({ ...r, depth: 0 }));
-  // Reaplica depth diretamente nos objetos já referenciados em byId
-  // (não recriamos nós — só atualizamos depth in place via fila).
+  // depth: BFS a partir das raízes, atualizando in place os nós já
+  // referenciados em byId (não recriamos nós).
   const visit: AccountTreeNode[] = [...roots];
   for (const r of visit) r.depth = 0;
   let i = 0;

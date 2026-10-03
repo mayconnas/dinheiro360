@@ -46,6 +46,8 @@ services:
       # Observabilidade — nível do logger estruturado (debug | info | warn | error)
       # e rastreabilidade exibida em /api/health (preenchidas pelo deploy).
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+      # CPF/CNPJ do dono das contas (transferências entre contas próprias) — definir no .env da VPS
+      OWNER_DOCUMENTS: "${OWNER_DOCUMENTS:-}"
       APP_VERSION: "${APP_VERSION:-dev}"
       GIT_SHA: "${GIT_SHA:-}"
     networks:
