@@ -76,6 +76,8 @@ flowchart TD
 
 A fronteira entre números (camada 3) e linguagem (camada 4) é o **Pacote de Contexto**: um resumo estruturado, não o extrato. Detalhes módulo a módulo e regras de negócio em [`arquitetura-gestor-financeiro.md`](./arquitetura-gestor-financeiro.md).
 
+> **[Mapa completo da arquitetura →](./docs/ARQUITETURA.md)**: visão geral do sistema, ciclo de uma requisição, Supabase por dentro (acessos, RLS e modelo de dados), fluxo do Open Finance, esteira de um lançamento, IA, CI/CD e a tabela de stacks com versões.
+
 ---
 
 ## Decisões de engenharia
@@ -102,6 +104,8 @@ A fronteira entre números (camada 3) e linguagem (camada 4) é o **Pacote de Co
 **Next.js 15** (App Router, Server Actions) · **React 19** · **TypeScript** estrito · **Tailwind** + Radix/shadcn · **Supabase** (Postgres, Auth, RLS) · **zod** · **Vitest** · **Docker Swarm** + Traefik · **GitHub Actions** (CI, build da imagem no GHCR, deploy por SSH).
 
 Integrações: **Pluggy** (Open Finance), **Anthropic / OpenAI / Google / DeepSeek** (Gestor), **TypeSafe Jev** (categorização).
+
+Versões e o papel de cada tecnologia: [tabela de stacks](./docs/ARQUITETURA.md#8-stacks).
 
 ---
 
